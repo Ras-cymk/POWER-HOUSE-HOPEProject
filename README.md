@@ -8,7 +8,7 @@ Information Management HOPE Project, Sprint 1 to 4 workspace.
 | Tool | Check it works | Download |
 |---|---|---|
 | Git | `git --version` | https://git-scm.com |
-| Python 3.10 or newer | `python --version` (on Mac/Linux you may need `python3`) | https://www.python.org |
+| Python 3.10 or newer | `python --version` | https://www.python.org |
 | A GitHub account with access to this repo | You accepted the collaborator invite | https://github.com |
 | A code editor (VS Code recommended) | | https://code.visualstudio.com |
 

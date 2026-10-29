@@ -5,7 +5,7 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 
-MIG_DIR = Path(__file__).resolve().parent.parent / "supabase" / "migrations"
+MIG_DIR = Path(__file__).resolve().parent.parent / "Supabase" / "migrations"
 NAME_RE = re.compile(r"^(\d{14})_([a-z0-9_]+)\.sql$")
 LOCK_ID = 727274  # arbitrary number; same for everyone
 
