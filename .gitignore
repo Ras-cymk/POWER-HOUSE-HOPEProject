@@ -3,11 +3,27 @@
 .env.*
 !.env.example
 
-# Python
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Python (migration runner)
 .venv/
 venv/
 __pycache__/
 *.pyc
+
+# Build, test and log output
+dist/
+build/
+coverage/
+logs/
+*.log
+
+# Supabase CLI local files (if anyone installs it)
+supabase/.branches/
+supabase/.temp/
 
 # Editor and OS clutter
 .vscode/
