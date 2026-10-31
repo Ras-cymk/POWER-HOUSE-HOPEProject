@@ -1,7 +1,7 @@
 # POWER-HOUSE-HOPEProject
 Information Management HOPE Project, Sprint 1 to 4 workspace.
 
-## MESSAGE/INSTRUCTIONS FROM DBMASTER 
+## MESSAGE/INSTRUCTIONS FROM DB ADMIN
 
 ## 1. What you need first
 
