@@ -1,8 +1,10 @@
-from flask import Blueprint, render_template
-
-main_bp = Blueprint("main", __name__)
+from flask import Flask
 
 
-@main_bp.route("/")
-def landing():
-    return render_template("landing.html")
+def create_app():
+    app = Flask(__name__)
+
+    from app.routes.main import main_bp
+    app.register_blueprint(main_bp)
+
+    return app
