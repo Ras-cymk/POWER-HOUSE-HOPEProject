@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.landing') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+    <div class="nav-actions">
+      <button class="btn btn-ghost" data-open="login">Sign in</button>
+      <button class="btn btn-solid" data-open="register">Register</button>
+    </div>
+  </header>
+
+  <main class="hero">
+    <h1>Every record, accounted for.</h1>
+    <p class="lead">Hope, Inc. ERP keeps customers, products, employees and sales in one place.</p>
+    <div class="cta">
+      <button class="btn btn-solid btn-lg" data-open="login">Sign in</button>
+      <button class="btn btn-outline btn-lg" data-open="register">Register</button>
+    </div>
+  </main>
+
+  <footer>&copy; 2026 Hope, Inc. ERP</footer>
+</div>
+
+{% include "partials/_auth_modals.html" %}
+{% endblock %}
