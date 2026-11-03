@@ -490,3 +490,29 @@ if (rows.length === 0) { /* invalid, expired or already used */ }
 - **Never log or print a token or its hash.** Audit logging (S1-DBA-06) must also keep `token_hash` out of the log.
 
 ## END OF ADDENDUM S1-DBA-04
+
+## Self notes: 
+Find users who are pending
+```sql
+select user_id, email, first_name, last_name, role_code, account_status, is_blocked, stamp
+from app_user
+where account_status = 'pending' and not is_deleted
+order by user_id;
+```
+
+Activate an account
+```sql
+update app_user
+set account_status = 'active'
+where lower(email) = lower('someone@example.com')
+  and account_status = 'pending'
+  and not is_deleted
+returning user_id, email, role_code, account_status;
+```
+
+Check to confirm
+```sql
+select email, role_code, account_status, is_blocked, password_hash is null as no_password
+from app_user_active
+where lower(email) = lower('someone@example.com');
+```
