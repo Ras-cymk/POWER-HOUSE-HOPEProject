@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Home | Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.home') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+    <div class="nav-actions">
+      <button class="btn btn-outline" data-logout>Log out</button>
+    </div>
+  </header>
+
+  <main class="hero">
+    <h1>Welcome, {{ user.first_name }}.</h1>
+    <p class="lead">You are signed in as {{ user.email }} ({{ user.role_code }}). The real main page arrives with S1-DEV-08.</p>
+  </main>
+</div>
+{% endblock %}
