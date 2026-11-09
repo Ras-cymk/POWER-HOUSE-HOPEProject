@@ -12,7 +12,6 @@ git clone https://github.com/Ras-cymk/POWER-HOUSE-HOPEProject.git
 - Fill in the PR template and write the task ID (e.g. S1-DEV-02).
 - A teammate must approve your PR before it is merged.
 - One task = one pull request.
-This REPO contains the files for our HOPE website, It contains The SQL of the database The backend of the website, And the front end of the website
 
 
 ## Other instructions
@@ -22,3 +21,7 @@ This REPO contains the files for our HOPE website, It contains The SQL of the da
 
 ## NEED HELP?
 GitHub access, branch rules, PR or issue templates: message the Scrum Master.
+
+
+
+This REPO contains the files for our HOPE website, It contains The SQL of the database The backend of the website, And the front end of the website
