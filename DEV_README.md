@@ -63,10 +63,11 @@ Open http://127.0.0.1:5000. Stop the server with Ctrl+C. Debug mode reloads the 
 ## How accounts work
 
 1. **Register.** Anyone can register on the landing page. New accounts get the role `user` and the status `pending`, and cannot sign in yet.
-2. **Approval.** An admin approves the account (S1-DEV-06, not built yet). Accounts also have an `is_blocked` flag, and a blocked account cannot sign in.
+2. **Approval.** An admin approves the account (S1-DEV-06, not built yet). Until then, activate an account with the test helper below. Accounts also have an `is_blocked` flag, and a blocked account cannot sign in.
 3. **First password.** New accounts have no password. An administrator issues a one-time set-password link, and the person opens it and chooses a password. The link works once and expires after 7 days by default. Passwords are stored only as bcrypt hashes.
 4. **Sign in.** Use the Sign in button on the landing page. After signing in you land on `/home`. The session lasts 8 hours or until you log out.
 5. **Forgot password.** The "Forgot your password?" link in the Sign in box opens `/forgot-password`. After the person enters their email, the app sends a one-time link to `/reset-password`. The link works once and expires after 30 minutes. Only accounts that are active, not blocked, and already have a password get a link, and each account gets at most one email per minute. The page gives the same answer whether or not the email has an account, so nobody can use it to find out who is registered. Accounts that have no password yet use the set-password link from step 3.
+6. **User Management.** Admins and superadmins manage accounts on `/users`. See the next sections.
 
 A signed-in person who gets blocked is signed out on their next click.
 
@@ -80,9 +81,26 @@ python db/issue_set_password_links.py --email person@example.com
 - It only works for accounts that are `active`, not blocked, and have no password yet. It looks at superadmins by default. Add `--role all` for admins and users.
 - The link is printed once and saved nowhere. Send it privately to its owner. Never paste it into the repo or a group chat.
 
+## User Management
+
+The "User Management" link on `/home`, which opens `/users`, is for admins and superadmins. Any other role gets 403. The page is a list with a search box, Add User, Edit and Block or Unblock.
+
+| | Admin | Superadmin |
+|---|---|---|
+| Sees in the list | accounts with the role `user` | all accounts |
+| Can add | users | users |
+| Can edit the name of | users | everyone |
+| Can block and unblock | users | everyone except themselves |
+
+- **Hidden accounts.** Admin and Superadmin accounts are hidden from Admins. The limit is part of every database query, so an Admin cannot reach a Superadmin by guessing an id. They get "User not found."
+- **Add User** creates an active account with the role `user` and no password, and emails a one-time set-password link that works once and lasts 7 days. Without `SMTP_*` settings, the link is printed in the Flask terminal. Making someone an admin is S1-DEV-06.
+- **Edit User** changes the first and last name. The email is the sign-in name, so it cannot be changed here.
+- **Block** signs the person out on their next click and stops them signing in until someone unblocks them. Nobody can block their own account, so an active superadmin always remains.
+- Deleted accounts never show. The list has no paging.
+
 ## Email
 
-The app sends email for password resets, and later for email verification. `app/mailer.py` does the sending, using the `SMTP_*` settings in `.env`.
+The app sends email for password resets and for new users added in User Management, and later for email verification. `app/mailer.py` does the sending, using the `SMTP_*` settings in `.env`.
 
 - **Development without a mail account:** leave `SMTP_HOST` empty. Nothing is sent. The email, including its link, is printed in the Flask terminal in a block that starts with "SMTP is not configured".
 - **Real email through Gmail:** turn on 2-Step Verification for the sending Gmail account and create an app password in its Google Account settings (search for "app passwords"). Then set these in `.env`:
@@ -118,9 +136,19 @@ The app sends email for password resets, and later for email verification. `app/
 4. Sign in with the new password. The old password must be refused.
 5. Open the same link again. It should say "This link has expired."
 
+**User Management** (use `test_` emails and never block or edit your teammates' accounts)
+
+1. Sign in as a superadmin and click "User Management" on `/home`. The list shows every account, your own row says "(you)", and it has no Block button.
+2. Type part of a name in the search box. The list should narrow down.
+3. Click Add User and add `test_b@example.com`. A message says the link was emailed, or printed in the terminal. Open the link, set a password, and sign in as that user. The Welcome page has no User Management link, and opening `/users` gives 403.
+4. Back as the superadmin, click Edit on the test user and change the name. The list updates, and the email box is read-only.
+5. Click Block on the test user and confirm. Signing in as them now says the account is blocked. Click Unblock, and they can sign in again.
+6. Add the same email again. It should say "An account with this email already exists."
+7. To see the Admin view, make the test account an admin with the role helper below and sign in as it. The list shows only users, with no superadmins and no admins. Put the role back to `user` afterwards.
+
 ### Test helpers (until the admin screens exist)
 
-Change the email and the value, then run:
+Change the email and the value, then run. Use them on test accounts only, never on your teammates' accounts.
 
 ```bash
 # approve an account (use 'pending' to put it back)
@@ -128,6 +156,9 @@ python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execut
 
 # block (True) or unblock (False) an account
 python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set is_blocked = %s where lower(email) = lower(%s)', (True, 'test_a@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
+
+# set the role of an account: 'admin' or 'user'
+python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set role_code = %s where lower(email) = lower(%s)', ('admin', 'test_b@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
 ```
 
 Rows cannot be hard-deleted, so use obvious `test_` emails and keep test accounts to a minimum.
@@ -145,6 +176,16 @@ All endpoints take and return JSON. Every response has `"ok": true` or `"ok": fa
 | `POST /api/forgot-password` | `email` | 200 with a `message`, the same whether or not the email has an account | 400 invalid email |
 | `POST /api/reset-password` | `token`, `password`, `confirm_password` | 200 with `redirect` | 400 bad password, passwords differ, or link invalid, used or expired |
 
+The user management endpoints need an admin or superadmin session. They return 401 when signed out and 403 for any other role.
+
+| Endpoint | Body | Success | Errors |
+|---|---|---|---|
+| `GET /api/users` | none | 200 with `users`, each with an `is_self` flag | none |
+| `POST /api/users` | `first_name`, `last_name`, `email` | 201 with `user` and `email_configured` | 400 invalid input, 409 email already registered |
+| `PATCH /api/users/<id>` | `first_name`, `last_name` | 200 | 400 invalid input, 404 user not found or not yours to manage |
+| `POST /api/users/<id>/block` | none | 200 | 400 your own account, 404 user not found or not yours to manage |
+| `POST /api/users/<id>/unblock` | none | 200 | 404 user not found or not yours to manage |
+
 Any endpoint can also return 500 for a database or server error. The details are in the Flask log.
 
 Wrong email, wrong password and an account with no password yet all give the same 401 message on purpose. A blocked or pending account is only named as such after the correct password is entered.
@@ -157,15 +198,19 @@ Passwords must be at least 8 characters and at most 72 bytes (bcrypt ignores any
 |---|---|
 | `app/routes/auth.py` | register, login, logout and set-password routes, and their database queries |
 | `app/routes/password_reset.py` | forgot-password and reset-password routes, and their database queries |
+| `app/routes/users.py` | the User Management page and API, and their database queries |
 | `app/security.py` | bcrypt hashing, token hashing, the session, `current_user()` and `@login_required` |
+| `app/permissions.py` | `@roles_required(...)` and which roles may manage which |
 | `app/mailer.py` | sends plain-text email through SMTP, or prints it when SMTP is not set up |
+| `app/templates/users.html`, `app/static/js/users.js` | the User Management page and its script |
 | `app/templates/set_password.html`, `forgot_password.html`, `reset_password.html` | the pages for the three link and form flows |
 | `app/templates/partials/_auth_page_style.html` | the centered layout those three pages share |
 | `app/templates/home.html` | placeholder page after sign-in, replaced by S1-DEV-08 |
 
-To protect a page, add `@login_required` under the route. Signed-out visitors are sent to the landing page, and `/api/` routes return 401 JSON.
+To protect a page, add `@login_required` under the route. To limit it to some roles, use `@roles_required` instead, which also checks that the person is signed in. Signed-out visitors are sent to the landing page, other roles get 403, and `/api/` routes return 401 or 403 as JSON. The check runs on the server, so hiding a button is never the only protection.
 
 ```python
+from app.permissions import roles_required
 from app.security import current_user, login_required
 
 @main_bp.route("/example")
@@ -173,11 +218,18 @@ from app.security import current_user, login_required
 def example():
     user = current_user()  # dict with user_id, email, first_name, last_name, role_code
     ...
+
+@main_bp.route("/reports")
+@roles_required("admin", "superadmin")
+def reports():
+    ...
 ```
 
-Not built yet: admin approval and user management screens, rights checks, email verification when registering, and lockout after repeated failed sign-ins.
+Role checks only decide who can open a page. Checks for individual rights come with S1-DEV-07 and S1-DEV-08.
 
-Known limit: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked.
+Not built yet: approving pending users and making admins (S1-DEV-06), the rights dialog and rights checks, email verification when registering, and lockout after repeated failed sign-ins.
+
+Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email.
 
 ## Troubleshooting
 
@@ -186,7 +238,7 @@ Known limit: resetting a password does not sign out sessions that are already op
 | `ModuleNotFoundError: No module named 'psycopg2'` or `'bcrypt'` | The virtual environment is not active, or the packages are not installed. Activate `.venv`, then run `python -m pip install -r requirements.txt`. |
 | `DATABASE_URL is missing` | There is no `.env` file. Copy `.env.example` to `.env` and fill it in. |
 | `SECRET_KEY is missing` | Add `SECRET_KEY=...` to `.env` (setup step 4). |
-| `404 Not Found` on `/api/login` or `/api/register` | The auth blueprint is not loaded. `flask --app app routes` should list `auth.login`, `auth.logout`, `auth.register`, `auth.set_password`, `auth.set_password_page`, and the four `reset.*` routes. |
+| `404 Not Found` on `/api/login` or `/api/register` | The auth blueprint is not loaded. `flask --app app routes` should list the `auth.*`, `reset.*` and `users.*` routes. |
 | A form shows "Could not reach the server" | The browser got no JSON reply. Open the page from the Flask address (http://127.0.0.1:5000) and check the Flask terminal for the request and any traceback. |
 | Register shows "Server error" and the log mentions `role_code` | The roles are not seeded. Pull the latest code and run `python db/migrate.py up`. |
 | The script says "No matching accounts without a password" | The account must be `active`, not blocked, have no password yet, and match the role filter. Use `--role all` for non-superadmins. |
@@ -195,3 +247,6 @@ Known limit: resetting a password does not sign out sessions that are already op
 | Sign in says "Invalid email or password" for a new account | The account has no password yet. Use the set-password link. |
 | Forgot password says a link is on its way, but none appears | Only active, unblocked accounts that already have a password get a link, and only one email per minute. With `SMTP_HOST` empty, look in the Flask terminal. |
 | No email arrives with SMTP set up | The Flask terminal shows "Could not send email" and the reason. With Gmail, use the app password (not the normal password), keep 2-Step Verification on, and check `SMTP_HOST` and `SMTP_PORT`. |
+| There is no User Management link on `/home`, or `/users` gives 403 | Only admins and superadmins can use it. Check the account's role. |
+| An Admin cannot see a person who exists | Admins only see accounts with the role `user`. Sign in as a superadmin to see everyone. |
+| Add User says the link was printed in the terminal | `SMTP_HOST` is empty, so no email was sent. Copy the link from the Flask terminal, or set up SMTP (see Email). |
