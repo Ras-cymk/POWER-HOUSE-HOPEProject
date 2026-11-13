@@ -49,6 +49,11 @@
     },
     login: { url: "/api/login", success: "Signed in." },
     "set-password": { url: "/api/set-password", success: "Password saved." },
+    "forgot-password": {
+      url: "/api/forgot-password",
+      success: "If that email has an account, a reset link is on its way.",
+    },
+    "reset-password": { url: "/api/reset-password", success: "Password saved." },
   };
 
   document.querySelectorAll("form[data-form]").forEach((form) => {
@@ -78,7 +83,7 @@
 
         note.hidden = false;
         if (result.ok) {
-          note.textContent = config.success;
+          note.textContent = result.message || config.success;
           form.reset();
         } else {
           note.textContent = result.error || "Something went wrong.";
@@ -94,4 +99,4 @@
 
   // After a logout, a blocked account or the set-password page, send people to the sign-in box
   if (new URLSearchParams(window.location.search).has("signin")) openModal("login");
-})();   
+})();

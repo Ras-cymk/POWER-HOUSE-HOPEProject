@@ -29,4 +29,7 @@ def create_app():
     from app.routes.auth import auth_bp
     app.register_blueprint(auth_bp)
 
+    from app.routes.password_reset import reset_bp
+    app.register_blueprint(reset_bp)
+
     return app
