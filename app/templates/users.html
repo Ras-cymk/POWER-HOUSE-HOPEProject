@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}User Management | Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+<style>
+  /* Layout for the User Management page. Colours come from the page, so UIX can restyle freely. */
+  .users-page { max-width: 64rem; margin: 2rem auto; padding: 0 1rem; }
+  .users-toolbar { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; margin: 1.25rem 0 0.75rem; }
+  .users-toolbar input[type="search"] { flex: 1 1 14rem; max-width: 24rem; padding: 0.6rem 0.8rem; font: inherit; }
+  .users-table-wrap { overflow-x: auto; }
+  .users-table { width: 100%; border-collapse: collapse; }
+  .users-table th, .users-table td { text-align: left; padding: 0.65rem 0.75rem; border-bottom: 1px solid rgba(128, 128, 128, 0.25); vertical-align: middle; }
+  .users-table th { font-size: 0.85rem; font-weight: 600; opacity: 0.75; }
+  .users-actions { display: flex; gap: 0.5rem; justify-content: flex-end; white-space: nowrap; }
+  .tag { display: inline-block; margin-right: 0.35rem; padding: 0.1rem 0.55rem; border: 1px solid rgba(128, 128, 128, 0.45); border-radius: 999px; font-size: 0.8rem; }
+  .tag-blocked { border-color: currentColor; font-weight: 600; }
+  .users-empty { margin-top: 1rem; opacity: 0.75; }
+</style>
+
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.home') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+    <div class="nav-actions">
+      <a class="btn btn-ghost" href="{{ url_for('main.home') }}">Home</a>
+      <button class="btn btn-outline" data-logout>Log out</button>
+    </div>
+  </header>
+
+  <main class="users-page">
+    <h1>User Management</h1>
+    <p class="lead">{% if me.role_code == 'superadmin' %}All accounts.{% else %}The users you manage.{% endif %}</p>
+
+    <div class="users-toolbar">
+      <input type="search" id="userSearch" placeholder="Search by name or email" aria-label="Search users">
+      <button type="button" class="btn btn-solid" id="addUserButton">Add User</button>
+    </div>
+
+    <p class="note" id="usersNote" role="status" hidden></p>
+
+    <div class="users-table-wrap">
+      <table class="users-table">
+        <thead>
+          <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+    <p class="users-empty" id="usersEmpty" hidden>No users found.</p>
+  </main>
+</div>
+
+<div class="overlay" id="addUserModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="addUserTitle">
+    <button class="close" data-close aria-label="Close">&times;</button>
+    <h2 id="addUserTitle">Add User</h2>
+    <p class="sub">We email them a link to choose their own password.</p>
+    <form>
+      <div class="row">
+        <div class="field">
+          <label for="addFirst">First name</label>
+          <input type="text" id="addFirst" name="first_name" maxlength="50" required>
+        </div>
+        <div class="field">
+          <label for="addLast">Last name</label>
+          <input type="text" id="addLast" name="last_name" maxlength="50" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="addEmail">Email address</label>
+        <input type="email" id="addEmail" name="email" maxlength="100" placeholder="name@company.com" required>
+      </div>
+      <button type="submit" class="btn btn-solid btn-full">Add User</button>
+      <p class="note" role="status" hidden></p>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="editUserModal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="editUserTitle">
+    <button class="close" data-close aria-label="Close">&times;</button>
+    <h2 id="editUserTitle">Edit User</h2>
+    <p class="sub">You can change the name. The email is the sign-in name, so it stays as it is.</p>
+    <form>
+      <input type="hidden" name="user_id">
+      <div class="row">
+        <div class="field">
+          <label for="editFirst">First name</label>
+          <input type="text" id="editFirst" name="first_name" maxlength="50" required>
+        </div>
+        <div class="field">
+          <label for="editLast">Last name</label>
+          <input type="text" id="editLast" name="last_name" maxlength="50" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="editEmail">Email address</label>
+        <input type="email" id="editEmail" disabled>
+      </div>
+      <button type="submit" class="btn btn-solid btn-full">Save changes</button>
+      <p class="note" role="status" hidden></p>
+    </form>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/users.js') }}"></script>
+{% endblock %}

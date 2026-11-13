@@ -32,4 +32,7 @@ def create_app():
     from app.routes.password_reset import reset_bp
     app.register_blueprint(reset_bp)
 
+    from app.routes.users import users_bp
+    app.register_blueprint(users_bp)
+
     return app

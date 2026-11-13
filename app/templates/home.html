@@ -6,6 +6,9 @@
   <header class="nav">
     <a href="{{ url_for('main.home') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
     <div class="nav-actions">
+      {% if user.role_code in ('admin', 'superadmin') %}
+      <a class="btn btn-ghost" href="{{ url_for('users.users_page') }}">User Management</a>
+      {% endif %}
       <button class="btn btn-outline" data-logout>Log out</button>
     </div>
   </header>
