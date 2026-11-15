@@ -16,6 +16,15 @@
     if (first) first.focus();
   }
 
+  async function logout() {
+    try {
+      await fetch("/api/logout", { method: "POST" });
+    } catch (err) {
+      // Go back to the landing page either way
+    }
+    window.location.href = "/";
+  }
+
   document.addEventListener("click", (e) => {
     const opener = e.target.closest("[data-open]");
     const switcher = e.target.closest("[data-switch]");
@@ -25,17 +34,34 @@
       openModal(switcher.dataset.switch);
     }
     if (e.target.closest("[data-close]") || e.target.classList.contains("overlay")) closeAll();
+    if (e.target.closest("[data-logout]")) logout();
   });
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") closeAll();
   });
 
-  // Register form -> POST /api/register (login is not connected yet)
+  // Which API each form posts to, and what to say when it succeeds without a redirect
+  const FORMS = {
+    register: {
+      url: "/api/register",
+      success: "Registered. Wait for an admin to approve your account.",
+    },
+    login: { url: "/api/login", success: "Signed in." },
+    "set-password": { url: "/api/set-password", success: "Password saved." },
+    "forgot-password": {
+      url: "/api/forgot-password",
+      success: "If that email has an account, a reset link is on its way.",
+    },
+    "reset-password": { url: "/api/reset-password", success: "Password saved." },
+  };
+
   document.querySelectorAll("form[data-form]").forEach((form) => {
+    const config = FORMS[form.dataset.form];
+    if (!config) return;
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      if (form.dataset.form !== "register") return;
 
       const note = form.querySelector(".note");
       const button = form.querySelector("button[type=submit]");
@@ -43,19 +69,24 @@
 
       button.disabled = true;
       try {
-        const response = await fetch("/api/register", {
+        const response = await fetch(config.url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(data),
         });
         const result = await response.json();
 
+        if (result.ok && result.redirect) {
+          window.location.href = result.redirect;
+          return;
+        }
+
         note.hidden = false;
         if (result.ok) {
-          note.textContent = "Registered. Wait for an admin to approve your account.";
+          note.textContent = result.message || config.success;
           form.reset();
         } else {
-          note.textContent = result.error || "Registration failed.";
+          note.textContent = result.error || "Something went wrong.";
         }
       } catch (err) {
         note.hidden = false;
@@ -65,4 +96,7 @@
       }
     });
   });
+
+  // After a logout, a blocked account or the set-password page, send people to the sign-in box
+  if (new URLSearchParams(window.location.search).has("signin")) openModal("login");
 })();
