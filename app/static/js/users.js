@@ -13,6 +13,7 @@
   const ROLE_NAMES = { superadmin: "Superadmin", admin: "Admin", user: "User" };
   const STATUS_NAMES = { active: "Active", pending: "Pending approval" };
   let users = [];
+  let viewerRole = "";
 
   // All text from the server goes in with textContent, never as HTML.
 
@@ -57,10 +58,10 @@
     return span;
   }
 
-  function button(label, onClick) {
+  function button(label, onClick, style) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "btn btn-outline";
+    b.className = "btn " + (style || "btn-outline");
     b.textContent = label;
     b.addEventListener("click", onClick);
     return b;
@@ -75,10 +76,21 @@
     const status = document.createElement("td");
     status.appendChild(tag(STATUS_NAMES[u.account_status] || u.account_status));
     if (u.is_blocked) status.appendChild(tag("Blocked", "tag-blocked"));
+    if (u.is_last_superadmin) status.appendChild(tag("Last superadmin"));
     tr.appendChild(status);
 
     const actions = document.createElement("td");
     actions.className = "users-actions";
+    // Approving and choosing admins are superadmin actions. The server checks this again.
+    if (viewerRole === "superadmin") {
+      if (u.account_status === "pending") {
+        actions.appendChild(button("Approve", () => approve(u), "btn-solid"));
+      } else if (!u.is_self && (u.role_code === "user" || u.role_code === "admin")) {
+        actions.appendChild(
+          button(u.role_code === "admin" ? "Remove admin" : "Make admin", () => changeRole(u))
+        );
+      }
+    }
     actions.appendChild(button("Edit", () => openEdit(u)));
     if (!u.is_self) actions.appendChild(button(u.is_blocked ? "Unblock" : "Block", () => toggleBlock(u)));
     tr.appendChild(actions);
@@ -103,6 +115,7 @@
         return;
       }
       users = result.users;
+      viewerRole = result.viewer_role;
       render();
     } catch (err) {
       showPageNote("Could not reach the server. Please try again.");
@@ -120,6 +133,50 @@
         return;
       }
       showPageNote(name + (blocking ? " is blocked." : " is unblocked."));
+      await load();
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  async function approve(u) {
+    const name = u.first_name + " " + u.last_name;
+    if (!window.confirm("Approve " + name + "? We will email them a link to choose a password.")) return;
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/approve", "POST");
+      if (!result.ok) {
+        showPageNote(result.error || "Something went wrong.");
+        return;
+      }
+      let message = name + " is approved.";
+      if (result.link_sent) {
+        message += result.email_configured
+          ? " A set-password link was emailed to " + result.email + "."
+          : " Email is not set up here, so the set-password link was printed in the Flask terminal.";
+      }
+      showPageNote(message);
+      await load();
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  async function changeRole(u) {
+    const makeAdmin = u.role_code !== "admin";
+    const name = u.first_name + " " + u.last_name;
+    const question = makeAdmin
+      ? "Make " + name + " an admin? They will be able to manage users."
+      : "Remove admin rights from " + name + "? They will become a regular user.";
+    if (!window.confirm(question)) return;
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/role", "POST", {
+        role_code: makeAdmin ? "admin" : "user",
+      });
+      if (!result.ok) {
+        showPageNote(result.error || "Something went wrong.");
+        return;
+      }
+      showPageNote(name + (makeAdmin ? " is now an admin." : " is now a regular user."));
       await load();
     } catch (err) {
       showPageNote("Could not reach the server. Please try again.");

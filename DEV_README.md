@@ -63,8 +63,8 @@ Open http://127.0.0.1:5000. Stop the server with Ctrl+C. Debug mode reloads the 
 ## How accounts work
 
 1. **Register.** Anyone can register on the landing page. New accounts get the role `user` and the status `pending`, and cannot sign in yet.
-2. **Approval.** An admin approves the account (S1-DEV-06, not built yet). Until then, activate an account with the test helper below. Accounts also have an `is_blocked` flag, and a blocked account cannot sign in.
-3. **First password.** New accounts have no password. An administrator issues a one-time set-password link, and the person opens it and chooses a password. The link works once and expires after 7 days by default. Passwords are stored only as bcrypt hashes.
+2. **Approval.** A superadmin approves a pending account with the Approve button on `/users`. That activates it and emails the person a one-time set-password link (step 3). Accounts also have an `is_blocked` flag, and a blocked account cannot sign in.
+3. **First password.** New accounts have no password. They get a one-time set-password link by email: when a superadmin approves them, when an admin adds them, or from `db/issue_set_password_links.py`. The person opens the link and chooses a password. The link works once and expires after 7 days. The account cannot be used until the owner of that address opens the link, so registering with someone else's email gets a person nowhere. Passwords are stored only as bcrypt hashes.
 4. **Sign in.** Use the Sign in button on the landing page. After signing in you land on `/home`. The session lasts 8 hours or until you log out.
 5. **Forgot password.** The "Forgot your password?" link in the Sign in box opens `/forgot-password`. After the person enters their email, the app sends a one-time link to `/reset-password`. The link works once and expires after 30 minutes. Only accounts that are active, not blocked, and already have a password get a link, and each account gets at most one email per minute. The page gives the same answer whether or not the email has an account, so nobody can use it to find out who is registered. Accounts that have no password yet use the set-password link from step 3.
 6. **User Management.** Admins and superadmins manage accounts on `/users`. See the next sections.
@@ -91,16 +91,21 @@ The "User Management" link on `/home`, which opens `/users`, is for admins and s
 | Can add | users | users |
 | Can edit the name of | users | everyone |
 | Can block and unblock | users | everyone except themselves |
+| Can approve pending accounts | no | yes |
+| Can make or remove admins | no | yes, but not for themselves |
 
 - **Hidden accounts.** Admin and Superadmin accounts are hidden from Admins. The limit is part of every database query, so an Admin cannot reach a Superadmin by guessing an id. They get "User not found."
-- **Add User** creates an active account with the role `user` and no password, and emails a one-time set-password link that works once and lasts 7 days. Without `SMTP_*` settings, the link is printed in the Flask terminal. Making someone an admin is S1-DEV-06.
+- **Add User** creates an active account with the role `user` and no password, and emails a one-time set-password link that works once and lasts 7 days. Without `SMTP_*` settings, the link is printed in the Flask terminal. Admins are chosen with Make admin (below).
 - **Edit User** changes the first and last name. The email is the sign-in name, so it cannot be changed here.
 - **Block** signs the person out on their next click and stops them signing in until someone unblocks them. Nobody can block their own account, so an active superadmin always remains.
-- Deleted accounts never show. The list has no paging.
+- **Approve** (superadmin only) activates a pending account. If the person has no password yet, it emails them a one-time set-password link. A pending account that is also blocked becomes active but stays blocked.
+- **Make admin** and **Remove admin** (superadmin only) change an active account between `user` and `admin`. You cannot change your own role, a pending account must be approved first, and superadmin accounts are never changed here. They come from the database seed.
+- **Last superadmin.** The system always keeps one active superadmin. Blocking the last one is refused, and its row carries a "Last superadmin" tag. The database step locks the active superadmins first, so two superadmins blocking each other at the same moment cannot leave none.
+- Pending accounts are listed first. Deleted accounts never show. The list has no paging.
 
 ## Email
 
-The app sends email for password resets and for new users added in User Management, and later for email verification. `app/mailer.py` does the sending, using the `SMTP_*` settings in `.env`.
+The app sends email for password resets, for new users added in User Management, and when a superadmin approves a pending account. The link in the approval email also proves the person owns the address. `app/mailer.py` does the sending, using the `SMTP_*` settings in `.env`.
 
 - **Development without a mail account:** leave `SMTP_HOST` empty. Nothing is sent. The email, including its link, is printed in the Flask terminal in a block that starts with "SMTP is not configured".
 - **Real email through Gmail:** turn on 2-Step Verification for the sending Gmail account and create an app password in its Google Account settings (search for "app passwords"). Then set these in `.env`:
@@ -144,20 +149,23 @@ The app sends email for password resets and for new users added in User Manageme
 4. Back as the superadmin, click Edit on the test user and change the name. The list updates, and the email box is read-only.
 5. Click Block on the test user and confirm. Signing in as them now says the account is blocked. Click Unblock, and they can sign in again.
 6. Add the same email again. It should say "An account with this email already exists."
-7. To see the Admin view, make the test account an admin with the role helper below and sign in as it. The list shows only users, with no superadmins and no admins. Put the role back to `user` afterwards.
+7. Register a second test account, `test_c@example.com`, from the landing page. As the superadmin, find it in the list (pending accounts come first) and click Approve. A set-password link is emailed to the address, or printed in the terminal without SMTP. Open it, set a password, and sign in.
+8. Click Make admin on that account. Signing in as it shows the User Management link, and its list has only users, with no superadmins and no admins, and no Approve or Make admin buttons. Click Remove admin to put it back.
+9. Check that Make admin never appears on your own row, on pending accounts or on superadmins.
+10. Your own row has no Block button. If every other superadmin were blocked, it would carry a "Last superadmin" tag. Don't block your teammates to see this.
 
 ### Test helpers (until the admin screens exist)
 
 Change the email and the value, then run. Use them on test accounts only, never on your teammates' accounts.
 
 ```bash
-# approve an account (use 'pending' to put it back)
+# approve an account without email (the Approve button does this and sends the link; use 'pending' to put it back)
 python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set account_status = %s where lower(email) = lower(%s)', ('active', 'test_a@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
 
 # block (True) or unblock (False) an account
 python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set is_blocked = %s where lower(email) = lower(%s)', (True, 'test_a@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
 
-# set the role of an account: 'admin' or 'user'
+# set the role of an account: 'admin' or 'user' (the Make admin button does this)
 python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set role_code = %s where lower(email) = lower(%s)', ('admin', 'test_b@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
 ```
 
@@ -176,15 +184,17 @@ All endpoints take and return JSON. Every response has `"ok": true` or `"ok": fa
 | `POST /api/forgot-password` | `email` | 200 with a `message`, the same whether or not the email has an account | 400 invalid email |
 | `POST /api/reset-password` | `token`, `password`, `confirm_password` | 200 with `redirect` | 400 bad password, passwords differ, or link invalid, used or expired |
 
-The user management endpoints need an admin or superadmin session. They return 401 when signed out and 403 for any other role.
+The user management endpoints need an admin or superadmin session. They return 401 when signed out and 403 for any other role. Approve and role changes need a superadmin session, and admins get 403 there too.
 
 | Endpoint | Body | Success | Errors |
 |---|---|---|---|
 | `GET /api/users` | none | 200 with `users`, each with an `is_self` flag | none |
 | `POST /api/users` | `first_name`, `last_name`, `email` | 201 with `user` and `email_configured` | 400 invalid input, 409 email already registered |
 | `PATCH /api/users/<id>` | `first_name`, `last_name` | 200 | 400 invalid input, 404 user not found or not yours to manage |
-| `POST /api/users/<id>/block` | none | 200 | 400 your own account, 404 user not found or not yours to manage |
+| `POST /api/users/<id>/block` | none | 200 | 400 your own account or the last active superadmin, 404 user not found or not yours to manage |
 | `POST /api/users/<id>/unblock` | none | 200 | 404 user not found or not yours to manage |
+| `POST /api/users/<id>/approve` | none | 200 with `link_sent`, `email` and `email_configured` | 400 already approved, 404 user not found |
+| `POST /api/users/<id>/role` | `role_code`: `admin` or `user` | 200 | 400 invalid role, your own account, a superadmin account, or an account that is not active yet; 404 user not found |
 
 Any endpoint can also return 500 for a database or server error. The details are in the Flask log.
 
@@ -198,7 +208,7 @@ Passwords must be at least 8 characters and at most 72 bytes (bcrypt ignores any
 |---|---|
 | `app/routes/auth.py` | register, login, logout and set-password routes, and their database queries |
 | `app/routes/password_reset.py` | forgot-password and reset-password routes, and their database queries |
-| `app/routes/users.py` | the User Management page and API, and their database queries |
+| `app/routes/users.py` | the User Management page and API (list, add, edit, block, approve, roles), and their database queries |
 | `app/security.py` | bcrypt hashing, token hashing, the session, `current_user()` and `@login_required` |
 | `app/permissions.py` | `@roles_required(...)` and which roles may manage which |
 | `app/mailer.py` | sends plain-text email through SMTP, or prints it when SMTP is not set up |
@@ -227,9 +237,9 @@ def reports():
 
 Role checks only decide who can open a page. Checks for individual rights come with S1-DEV-07 and S1-DEV-08.
 
-Not built yet: approving pending users and making admins (S1-DEV-06), the rights dialog and rights checks, email verification when registering, and lockout after repeated failed sign-ins.
+Not built yet: the rights dialog and rights checks, a separate "verify your email" step before approval (the link emailed on approval already proves ownership of the address), and lockout after repeated failed sign-ins.
 
-Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email.
+Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email. Superadmin accounts come from the database seed and cannot be created or demoted on the screen.
 
 ## Troubleshooting
 
@@ -249,4 +259,6 @@ Known limits: resetting a password does not sign out sessions that are already o
 | No email arrives with SMTP set up | The Flask terminal shows "Could not send email" and the reason. With Gmail, use the app password (not the normal password), keep 2-Step Verification on, and check `SMTP_HOST` and `SMTP_PORT`. |
 | There is no User Management link on `/home`, or `/users` gives 403 | Only admins and superadmins can use it. Check the account's role. |
 | An Admin cannot see a person who exists | Admins only see accounts with the role `user`. Sign in as a superadmin to see everyone. |
-| Add User says the link was printed in the terminal | `SMTP_HOST` is empty, so no email was sent. Copy the link from the Flask terminal, or set up SMTP (see Email). |
+| Add User or Approve says the link was printed in the terminal | `SMTP_HOST` is empty, so no email was sent. Copy the link from the Flask terminal, or set up SMTP (see Email). |
+| There is no Approve or Make admin button | Only superadmins see them. Approve appears on pending accounts only. Make admin appears on active users, never on your own row, on pending accounts or on superadmins. |
+| Approve worked, but the person got no email | Check the spam folder, and the Flask terminal for "Could not send email". If the address was mistyped at registration, no email can arrive. |
