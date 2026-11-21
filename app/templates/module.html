@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}{{ module.module_name }} | Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+{% include "partials/_app_shell_style.html" %}
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.home') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+    <div class="nav-actions">
+      <button class="btn btn-outline" data-logout>Log out</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    {% set active = module.module_code %}
+    {% include "partials/_sidebar.html" %}
+
+    <main class="app-main">
+      <h1>{{ module.module_name }}</h1>
+      <p class="lead">The screens for this module are built in a later sprint. This page shows what you may do here.</p>
+
+      <table class="rights-table">
+        <thead>
+          <tr><th>Action</th><th>Your access</th></tr>
+        </thead>
+        <tbody>
+          {% for r in module.rights %}
+          <tr data-right="{{ r.perm_code }}" data-allowed="{{ 'yes' if r.granted else 'no' }}">
+            <td>{{ r.perm_name }}</td>
+            <td>{{ 'Allowed' if r.granted else 'Not allowed' }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if user.role_code == 'superadmin' %}
+      <p class="lead">Superadmins hold every right.</p>
+      {% endif %}
+    </main>
+  </div>
+</div>
+{% endblock %}

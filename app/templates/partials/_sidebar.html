@@ -1,0 +1,11 @@
+<nav class="app-sidebar" aria-label="Main menu">
+  <p class="side-title">Menu</p>
+  <a class="side-link" data-nav="home" href="{{ url_for('main.home') }}"{% if active == 'home' %} aria-current="page"{% endif %}>Home</a>
+  {% for m in nav.modules %}
+  <a class="side-link" data-module="{{ m.module_code }}" href="{{ url_for('modules.module_page', module_code=m.module_code) }}"{% if active == m.module_code %} aria-current="page"{% endif %}>{{ m.module_name }}</a>
+  {% endfor %}
+  {% if nav.can_manage_users %}
+  <hr class="side-divider">
+  <a class="side-link" data-nav="users" href="{{ url_for('users.users_page') }}">User Management</a>
+  {% endif %}
+</nav>

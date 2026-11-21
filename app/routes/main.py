@@ -1,5 +1,6 @@
 from flask import Blueprint, render_template
 
+from app.navigation import ROLE_NAMES, build_nav, module_access
 from app.security import current_user, login_required
 
 
@@ -14,5 +15,10 @@ def landing():
 @main_bp.route("/home")
 @login_required
 def home():
-    # Placeholder so you can see that sign-in works. S1-DEV-08 builds the real main page.
-    return render_template("home.html", user=current_user())
+    user = current_user()
+    return render_template(
+        "home.html",
+        user=user,
+        role_name=ROLE_NAMES.get(user["role_code"], user["role_code"]),
+        nav=build_nav(user, module_access(user)),
+    )

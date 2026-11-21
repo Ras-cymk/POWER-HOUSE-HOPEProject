@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from flask import Flask
+from flask import Flask, jsonify, render_template, request
 
 
 def create_app():
@@ -34,5 +34,18 @@ def create_app():
 
     from app.routes.users import users_bp
     app.register_blueprint(users_bp)
+
+    from app.routes.rights import rights_bp
+    app.register_blueprint(rights_bp)
+
+    from app.routes.modules import modules_bp
+    app.register_blueprint(modules_bp)
+
+    @app.errorhandler(403)
+    def forbidden(error):
+        # Pages get a friendly screen. API calls get JSON, like every other API answer.
+        if request.path.startswith("/api/"):
+            return jsonify(ok=False, error="You do not have access to this."), 403
+        return render_template("403.html"), 403
 
     return app
