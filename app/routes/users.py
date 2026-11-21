@@ -6,7 +6,7 @@ from flask import Blueprint, current_app, jsonify, render_template, request, url
 
 from app.db import get_connection
 from app.mailer import send_email_async
-from app.permissions import manageable_roles, roles_required
+from app.permissions import manageable_roles, rights_target_roles, roles_required
 from app.routes.auth import EMAIL_RE, MAX_EMAIL, MAX_NAME
 from app.security import current_user, hash_token
 
@@ -275,9 +275,11 @@ def api_list_users():
         if u["role_code"] == "superadmin" and u["account_status"] == "active" and not u["is_blocked"]
     ]
     last_superadmin = active_superadmins[0] if len(active_superadmins) == 1 else None
+    rights_roles = rights_target_roles(me["role_code"])
     for user in users:
         user["is_self"] = user["user_id"] == me["user_id"]
         user["is_last_superadmin"] = user["user_id"] == last_superadmin
+        user["can_set_rights"] = user["role_code"] in rights_roles
     return jsonify(ok=True, users=users, viewer_role=me["role_code"])
 
 
@@ -320,6 +322,7 @@ def api_add_user():
         "is_blocked": False,
         "is_self": False,
         "is_last_superadmin": False,
+        "can_set_rights": True,
     }
     return jsonify(ok=True, user=user, email_configured=bool(os.getenv("SMTP_HOST"))), 201
 

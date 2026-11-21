@@ -68,6 +68,7 @@ Open http://127.0.0.1:5000. Stop the server with Ctrl+C. Debug mode reloads the 
 4. **Sign in.** Use the Sign in button on the landing page. After signing in you land on `/home`. The session lasts 8 hours or until you log out.
 5. **Forgot password.** The "Forgot your password?" link in the Sign in box opens `/forgot-password`. After the person enters their email, the app sends a one-time link to `/reset-password`. The link works once and expires after 30 minutes. Only accounts that are active, not blocked, and already have a password get a link, and each account gets at most one email per minute. The page gives the same answer whether or not the email has an account, so nobody can use it to find out who is registered. Accounts that have no password yet use the set-password link from step 3.
 6. **User Management.** Admins and superadmins manage accounts on `/users`. See the next sections.
+7. **Rights.** The Rights button on `/users` sets what a person may do, per action and grouped by module (Customer, Product, Human Resources, Sales, Reports). Every change is logged in `audit_log`.
 
 A signed-in person who gets blocked is signed out on their next click.
 
@@ -93,6 +94,7 @@ The "User Management" link on `/home`, which opens `/users`, is for admins and s
 | Can block and unblock | users | everyone except themselves |
 | Can approve pending accounts | no | yes |
 | Can make or remove admins | no | yes, but not for themselves |
+| Can set rights for | users | users and admins |
 
 - **Hidden accounts.** Admin and Superadmin accounts are hidden from Admins. The limit is part of every database query, so an Admin cannot reach a Superadmin by guessing an id. They get "User not found."
 - **Add User** creates an active account with the role `user` and no password, and emails a one-time set-password link that works once and lasts 7 days. Without `SMTP_*` settings, the link is printed in the Flask terminal. Admins are chosen with Make admin (below).
@@ -101,6 +103,9 @@ The "User Management" link on `/home`, which opens `/users`, is for admins and s
 - **Approve** (superadmin only) activates a pending account. If the person has no password yet, it emails them a one-time set-password link. A pending account that is also blocked becomes active but stays blocked.
 - **Make admin** and **Remove admin** (superadmin only) change an active account between `user` and `admin`. You cannot change your own role, a pending account must be approved first, and superadmin accounts are never changed here. They come from the database seed.
 - **Last superadmin.** The system always keeps one active superadmin. Blocking the last one is refused, and its row carries a "Last superadmin" tag. The database step locks the active superadmins first, so two superadmins blocking each other at the same moment cannot leave none.
+- **Rights.** The Rights button opens a dialog with the five modules, a box for each action (36 in all, read from the database), a box per module that ticks or unticks all of its actions, and All and None buttons. Nothing changes until Save. Superadmin accounts have no Rights button because they hold every right, and nobody can change a superadmin's rights.
+- Unticking a right soft-deletes it and re-ticking restores it, as for every other table. Saving the same rights again changes nothing and writes nothing.
+- **Audit trail.** Every right that actually changes writes one `audit_log` entry (`ADD`, `DELETE` or `RESTORE`, with the old and new row) in the same transaction as the change, so both are saved or neither. The database is told who is acting through the `app.username` setting, which `audit_user()` reads, and that name goes into `audit_log.action_by` and the `stamp` column. The name is the person's email cut to 32 characters, so it also fits the 60-character `stamp` of the HOPE tables. The app writes these entries because `user_permission` has no audit trigger. Do not attach `trg_audit_log` to it, or every change would be logged twice.
 - Pending accounts are listed first. Deleted accounts never show. The list has no paging.
 
 ## Email
@@ -153,6 +158,11 @@ The app sends email for password resets, for new users added in User Management,
 8. Click Make admin on that account. Signing in as it shows the User Management link, and its list has only users, with no superadmins and no admins, and no Approve or Make admin buttons. Click Remove admin to put it back.
 9. Check that Make admin never appears on your own row, on pending accounts or on superadmins.
 10. Your own row has no Block button. If every other superadmin were blocked, it would carry a "Last superadmin" tag. Don't block your teammates to see this.
+11. Click Rights on a `test_` user. The dialog shows the five modules with nothing ticked. Tick one right and click Save. The page says "Rights saved (1 added)."
+12. Open Rights again. Your tick is still there. Click All and Save ("35 added"), then None and Save ("36 removed").
+13. In the dialog, tick a module box: all of its actions tick and its counter says, for example, "3 of 3". Untick one action: the module box shows a dash.
+14. Read the audit entries back with the helper below. There is one entry per change, and `action_by` is your email, not the database login.
+15. Sign in as an admin test account. It can open Rights for a `test_` user, and it never sees admins or superadmins to open theirs.
 
 ### Test helpers (until the admin screens exist)
 
@@ -169,7 +179,19 @@ python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execut
 python -c "from app.db import get_connection as g; c=g(); k=c.cursor(); k.execute('update app_user set role_code = %s where lower(email) = lower(%s)', ('admin', 'test_b@example.com')); print(k.rowcount, 'row changed'); c.commit(); c.close()"
 ```
 
-Rows cannot be hard-deleted, so use obvious `test_` emails and keep test accounts to a minimum.
+Rows cannot be hard-deleted and `audit_log` cannot be edited, so use obvious `test_` emails and keep test accounts to a minimum.
+
+Show the latest rights entries in `audit_log`:
+
+```bash
+python - <<'EOF'
+from app.db import get_connection
+conn = get_connection(); cur = conn.cursor()
+cur.execute("select audit_id, action, record_key, action_by, action_at from audit_log where table_name = 'user_permission' order by audit_id desc limit 10")
+for row in cur.fetchall(): print(row)
+conn.close()
+EOF
+```
 
 ## API
 
@@ -184,7 +206,7 @@ All endpoints take and return JSON. Every response has `"ok": true` or `"ok": fa
 | `POST /api/forgot-password` | `email` | 200 with a `message`, the same whether or not the email has an account | 400 invalid email |
 | `POST /api/reset-password` | `token`, `password`, `confirm_password` | 200 with `redirect` | 400 bad password, passwords differ, or link invalid, used or expired |
 
-The user management endpoints need an admin or superadmin session. They return 401 when signed out and 403 for any other role. Approve and role changes need a superadmin session, and admins get 403 there too.
+The user management and rights endpoints need an admin or superadmin session. They return 401 when signed out and 403 for any other role. Approve and role changes need a superadmin session, and admins get 403 there too.
 
 | Endpoint | Body | Success | Errors |
 |---|---|---|---|
@@ -194,6 +216,8 @@ The user management endpoints need an admin or superadmin session. They return 4
 | `POST /api/users/<id>/block` | none | 200 | 400 your own account or the last active superadmin, 404 user not found or not yours to manage |
 | `POST /api/users/<id>/unblock` | none | 200 | 404 user not found or not yours to manage |
 | `POST /api/users/<id>/approve` | none | 200 with `link_sent`, `email` and `email_configured` | 400 already approved, 404 user not found |
+| `GET /api/users/<id>/rights` | none | 200 with `user` and `modules`, each listing its rights with a `granted` flag | 404 user not found or not yours to manage |
+| `PUT /api/users/<id>/rights` | `rights`: the full list of right codes the person should hold afterwards | 200 with `granted` and `revoked` counts | 400 not a list of codes or an unknown code, 404 user not found or not yours to manage |
 | `POST /api/users/<id>/role` | `role_code`: `admin` or `user` | 200 | 400 invalid role, your own account, a superadmin account, or an account that is not active yet; 404 user not found |
 
 Any endpoint can also return 500 for a database or server error. The details are in the Flask log.
@@ -209,8 +233,11 @@ Passwords must be at least 8 characters and at most 72 bytes (bcrypt ignores any
 | `app/routes/auth.py` | register, login, logout and set-password routes, and their database queries |
 | `app/routes/password_reset.py` | forgot-password and reset-password routes, and their database queries |
 | `app/routes/users.py` | the User Management page and API (list, add, edit, block, approve, roles), and their database queries |
+| `app/routes/rights.py` | the Rights dialog's API |
+| `app/rights.py` | the rights queries, and the save that also writes the audit entries |
+| `app/audit.py` | the name sent to the database's audit trail |
 | `app/security.py` | bcrypt hashing, token hashing, the session, `current_user()` and `@login_required` |
-| `app/permissions.py` | `@roles_required(...)` and which roles may manage which |
+| `app/permissions.py` | `@roles_required(...)`, `@right_required(...)`, `has_right()`, and which roles may manage which |
 | `app/mailer.py` | sends plain-text email through SMTP, or prints it when SMTP is not set up |
 | `app/templates/users.html`, `app/static/js/users.js` | the User Management page and its script |
 | `app/templates/set_password.html`, `forgot_password.html`, `reset_password.html` | the pages for the three link and form flows |
@@ -235,11 +262,20 @@ def reports():
     ...
 ```
 
-Role checks only decide who can open a page. Checks for individual rights come with S1-DEV-07 and S1-DEV-08.
+Role checks only decide who can open a page. To check an individual right, use `@right_required` for a route, or `has_right(...)` in code. Superadmins always pass, and the codes are the ones in the Rights dialog, such as `customers.add` or `reports.topSales`. Hide buttons the person cannot use, but the server check is the protection.
 
-Not built yet: the rights dialog and rights checks, a separate "verify your email" step before approval (the link emailed on approval already proves ownership of the address), and lockout after repeated failed sign-ins.
+```python
+from app.permissions import has_right, right_required
 
-Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email. Superadmin accounts come from the database seed and cannot be created or demoted on the screen.
+@main_bp.route("/customers/new")
+@right_required("customers.add")
+def new_customer():
+    ...
+```
+
+Not built yet: pages and menus that follow the rights (S1-DEV-08 onwards, using `has_right` and `@right_required`; no page uses them yet), a screen to read the audit log, a separate "verify your email" step before approval (the link emailed on approval already proves ownership of the address), and lockout after repeated failed sign-ins.
+
+Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email. Superadmin accounts come from the database seed and cannot be created or demoted on the screen. Only rights changes tell the database who is acting. The stamp of other writes (add, edit, block, approve, roles) still records the database login. An Admin can grant any right, including ones they do not hold themselves.
 
 ## Troubleshooting
 
@@ -262,3 +298,5 @@ Known limits: resetting a password does not sign out sessions that are already o
 | Add User or Approve says the link was printed in the terminal | `SMTP_HOST` is empty, so no email was sent. Copy the link from the Flask terminal, or set up SMTP (see Email). |
 | There is no Approve or Make admin button | Only superadmins see them. Approve appears on pending accounts only. Make admin appears on active users, never on your own row, on pending accounts or on superadmins. |
 | Approve worked, but the person got no email | Check the spam folder, and the Flask terminal for "Could not send email". If the address was mistyped at registration, no email can arrive. |
+| There is no Rights button | Only admins and superadmins see it. It never shows on superadmin rows, and an Admin only sees users. |
+| Saving rights says "Server error" | Check the Flask terminal for the reason. Nothing is saved when the audit entry cannot be written. |

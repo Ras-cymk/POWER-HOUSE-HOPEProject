@@ -15,6 +15,15 @@
   .tag { display: inline-block; margin-right: 0.35rem; padding: 0.1rem 0.55rem; border: 1px solid rgba(128, 128, 128, 0.45); border-radius: 999px; font-size: 0.8rem; }
   .tag-blocked { border-color: currentColor; font-weight: 600; }
   .users-empty { margin-top: 1rem; opacity: 0.75; }
+  /* Rights dialog */
+  .overlay .modal.rights-modal { max-width: 46rem; width: 94vw; }
+  .rights-tools { display: flex; gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
+  .rights-body { max-height: 55vh; overflow-y: auto; margin-bottom: 1rem; padding-right: 0.25rem; }
+  .rights-module { margin: 0 0 1.1rem; }
+  .rights-module-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.35rem 0; font-weight: 600; border-bottom: 1px solid rgba(128, 128, 128, 0.25); }
+  .rights-count { font-weight: 400; font-size: 0.85rem; opacity: 0.7; }
+  .rights-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.4rem 1rem; padding-top: 0.6rem; }
+  .rights-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
 </style>
 
 <div class="wrap">
@@ -97,6 +106,23 @@
         <input type="email" id="editEmail" disabled>
       </div>
       <button type="submit" class="btn btn-solid btn-full">Save changes</button>
+      <p class="note" role="status" hidden></p>
+    </form>
+  </div>
+</div>
+
+<div class="overlay" id="rightsModal">
+  <div class="modal rights-modal" role="dialog" aria-modal="true" aria-labelledby="rightsTitle">
+    <button class="close" data-close aria-label="Close">&times;</button>
+    <h2 id="rightsTitle">Rights</h2>
+    <p class="sub" id="rightsSub"></p>
+    <div class="rights-tools">
+      <button type="button" class="btn btn-outline" id="rightsAll">All</button>
+      <button type="button" class="btn btn-outline" id="rightsNone">None</button>
+    </div>
+    <form id="rightsForm">
+      <div class="rights-body" id="rightsBody"></div>
+      <button type="submit" class="btn btn-solid btn-full">Save rights</button>
       <p class="note" role="status" hidden></p>
     </form>
   </div>
