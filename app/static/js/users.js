@@ -9,10 +9,15 @@
   const editModal = document.getElementById("editUserModal");
   const addForm = addModal.querySelector("form");
   const editForm = editModal.querySelector("form");
+  const rightsModal = document.getElementById("rightsModal");
+  const rightsForm = document.getElementById("rightsForm");
+  const rightsBody = document.getElementById("rightsBody");
+  let rightsUserId = null;
 
   const ROLE_NAMES = { superadmin: "Superadmin", admin: "Admin", user: "User" };
   const STATUS_NAMES = { active: "Active", pending: "Pending approval" };
   let users = [];
+  let viewerRole = "";
 
   // All text from the server goes in with textContent, never as HTML.
 
@@ -57,10 +62,10 @@
     return span;
   }
 
-  function button(label, onClick) {
+  function button(label, onClick, style) {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "btn btn-outline";
+    b.className = "btn " + (style || "btn-outline");
     b.textContent = label;
     b.addEventListener("click", onClick);
     return b;
@@ -75,10 +80,22 @@
     const status = document.createElement("td");
     status.appendChild(tag(STATUS_NAMES[u.account_status] || u.account_status));
     if (u.is_blocked) status.appendChild(tag("Blocked", "tag-blocked"));
+    if (u.is_last_superadmin) status.appendChild(tag("Last superadmin"));
     tr.appendChild(status);
 
     const actions = document.createElement("td");
     actions.className = "users-actions";
+    // Approving and choosing admins are superadmin actions. The server checks this again.
+    if (viewerRole === "superadmin") {
+      if (u.account_status === "pending") {
+        actions.appendChild(button("Approve", () => approve(u), "btn-solid"));
+      } else if (!u.is_self && (u.role_code === "user" || u.role_code === "admin")) {
+        actions.appendChild(
+          button(u.role_code === "admin" ? "Remove admin" : "Make admin", () => changeRole(u))
+        );
+      }
+    }
+    if (u.can_set_rights) actions.appendChild(button("Rights", () => openRights(u)));
     actions.appendChild(button("Edit", () => openEdit(u)));
     if (!u.is_self) actions.appendChild(button(u.is_blocked ? "Unblock" : "Block", () => toggleBlock(u)));
     tr.appendChild(actions);
@@ -103,6 +120,7 @@
         return;
       }
       users = result.users;
+      viewerRole = result.viewer_role;
       render();
     } catch (err) {
       showPageNote("Could not reach the server. Please try again.");
@@ -120,6 +138,50 @@
         return;
       }
       showPageNote(name + (blocking ? " is blocked." : " is unblocked."));
+      await load();
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  async function approve(u) {
+    const name = u.first_name + " " + u.last_name;
+    if (!window.confirm("Approve " + name + "? We will email them a link to choose a password.")) return;
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/approve", "POST");
+      if (!result.ok) {
+        showPageNote(result.error || "Something went wrong.");
+        return;
+      }
+      let message = name + " is approved.";
+      if (result.link_sent) {
+        message += result.email_configured
+          ? " A set-password link was emailed to " + result.email + "."
+          : " Email is not set up here, so the set-password link was printed in the Flask terminal.";
+      }
+      showPageNote(message);
+      await load();
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  async function changeRole(u) {
+    const makeAdmin = u.role_code !== "admin";
+    const name = u.first_name + " " + u.last_name;
+    const question = makeAdmin
+      ? "Make " + name + " an admin? They will be able to manage users."
+      : "Remove admin rights from " + name + "? They will become a regular user.";
+    if (!window.confirm(question)) return;
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/role", "POST", {
+        role_code: makeAdmin ? "admin" : "user",
+      });
+      if (!result.ok) {
+        showPageNote(result.error || "Something went wrong.");
+        return;
+      }
+      showPageNote(name + (makeAdmin ? " is now an admin." : " is now a regular user."));
       await load();
     } catch (err) {
       showPageNote("Could not reach the server. Please try again.");
@@ -192,6 +254,117 @@
       () => {
         closeModal(editModal);
         showPageNote("Changes saved.");
+      }
+    );
+  });
+
+  // ---- Rights dialog: five modules, a box per action, a box per module, All and None ----
+
+  function rightsBoxes() {
+    return Array.from(rightsBody.querySelectorAll("input[data-perm]"));
+  }
+
+  function setAllRights(checked) {
+    rightsBoxes().forEach((box) => {
+      box.checked = checked;
+      box.dispatchEvent(new Event("change")); // keeps each module box and counter in step
+    });
+  }
+
+  function checkLabel(box, text) {
+    const label = document.createElement("label");
+    label.className = "rights-check";
+    const span = document.createElement("span");
+    span.textContent = text;
+    label.append(box, span);
+    return label;
+  }
+
+  function renderRights(modules) {
+    rightsBody.replaceChildren();
+    modules.forEach((m) => {
+      const group = document.createElement("div");
+      group.className = "rights-module";
+
+      const head = document.createElement("div");
+      head.className = "rights-module-head";
+      const moduleBox = document.createElement("input");
+      moduleBox.type = "checkbox";
+      const count = document.createElement("span");
+      count.className = "rights-count";
+      head.append(checkLabel(moduleBox, m.module_name), count);
+
+      const grid = document.createElement("div");
+      grid.className = "rights-grid";
+      const boxes = m.rights.map((r) => {
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = r.perm_code;
+        box.dataset.perm = r.perm_code;
+        box.checked = r.granted;
+        grid.appendChild(checkLabel(box, r.perm_name));
+        return box;
+      });
+
+      function sync() {
+        const ticked = boxes.filter((b) => b.checked).length;
+        moduleBox.checked = boxes.length > 0 && ticked === boxes.length;
+        moduleBox.indeterminate = ticked > 0 && ticked < boxes.length;
+        count.textContent = ticked + " of " + boxes.length;
+      }
+      boxes.forEach((b) => b.addEventListener("change", sync));
+      moduleBox.addEventListener("change", () => {
+        boxes.forEach((b) => {
+          b.checked = moduleBox.checked;
+        });
+        sync();
+      });
+      sync();
+
+      group.append(head, grid);
+      rightsBody.appendChild(group);
+    });
+  }
+
+  async function openRights(u) {
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/rights", "GET");
+      if (!result.ok) {
+        showPageNote(result.error || "Could not load the rights.");
+        return;
+      }
+      rightsUserId = u.user_id;
+      document.getElementById("rightsTitle").textContent =
+        "Rights: " + result.user.first_name + " " + result.user.last_name;
+      document.getElementById("rightsSub").textContent =
+        "Tick what this " + (ROLE_NAMES[result.user.role_code] || "person").toLowerCase() + " may do. Nothing changes until you save.";
+      rightsForm.querySelector(".note").hidden = true;
+      renderRights(result.modules);
+      openModal(rightsModal);
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  document.getElementById("rightsAll").addEventListener("click", () => setAllRights(true));
+  document.getElementById("rightsNone").addEventListener("click", () => setAllRights(false));
+
+  rightsForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitForm(
+      rightsForm,
+      () =>
+        callApi("/api/users/" + rightsUserId + "/rights", "PUT", {
+          rights: rightsBoxes()
+            .filter((box) => box.checked)
+            .map((box) => box.value),
+        }),
+      (result) => {
+        closeModal(rightsModal);
+        const parts = [];
+        if (result.granted) parts.push(result.granted + " added");
+        if (result.revoked) parts.push(result.revoked + " removed");
+        showPageNote(parts.length ? "Rights saved (" + parts.join(", ") + ")." : "No changes to save.");
       }
     );
   });

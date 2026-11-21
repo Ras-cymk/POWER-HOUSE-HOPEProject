@@ -35,4 +35,7 @@ def create_app():
     from app.routes.users import users_bp
     app.register_blueprint(users_bp)
 
+    from app.routes.rights import rights_bp
+    app.register_blueprint(rights_bp)
+
     return app
