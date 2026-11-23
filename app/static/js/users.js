@@ -9,6 +9,10 @@
   const editModal = document.getElementById("editUserModal");
   const addForm = addModal.querySelector("form");
   const editForm = editModal.querySelector("form");
+  const rightsModal = document.getElementById("rightsModal");
+  const rightsForm = document.getElementById("rightsForm");
+  const rightsBody = document.getElementById("rightsBody");
+  let rightsUserId = null;
 
   const ROLE_NAMES = { superadmin: "Superadmin", admin: "Admin", user: "User" };
   const STATUS_NAMES = { active: "Active", pending: "Pending approval" };
@@ -91,6 +95,7 @@
         );
       }
     }
+    if (u.can_set_rights) actions.appendChild(button("Rights", () => openRights(u)));
     actions.appendChild(button("Edit", () => openEdit(u)));
     if (!u.is_self) actions.appendChild(button(u.is_blocked ? "Unblock" : "Block", () => toggleBlock(u)));
     tr.appendChild(actions);
@@ -249,6 +254,117 @@
       () => {
         closeModal(editModal);
         showPageNote("Changes saved.");
+      }
+    );
+  });
+
+  // ---- Rights dialog: five modules, a box per action, a box per module, All and None ----
+
+  function rightsBoxes() {
+    return Array.from(rightsBody.querySelectorAll("input[data-perm]"));
+  }
+
+  function setAllRights(checked) {
+    rightsBoxes().forEach((box) => {
+      box.checked = checked;
+      box.dispatchEvent(new Event("change")); // keeps each module box and counter in step
+    });
+  }
+
+  function checkLabel(box, text) {
+    const label = document.createElement("label");
+    label.className = "rights-check";
+    const span = document.createElement("span");
+    span.textContent = text;
+    label.append(box, span);
+    return label;
+  }
+
+  function renderRights(modules) {
+    rightsBody.replaceChildren();
+    modules.forEach((m) => {
+      const group = document.createElement("div");
+      group.className = "rights-module";
+
+      const head = document.createElement("div");
+      head.className = "rights-module-head";
+      const moduleBox = document.createElement("input");
+      moduleBox.type = "checkbox";
+      const count = document.createElement("span");
+      count.className = "rights-count";
+      head.append(checkLabel(moduleBox, m.module_name), count);
+
+      const grid = document.createElement("div");
+      grid.className = "rights-grid";
+      const boxes = m.rights.map((r) => {
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.value = r.perm_code;
+        box.dataset.perm = r.perm_code;
+        box.checked = r.granted;
+        grid.appendChild(checkLabel(box, r.perm_name));
+        return box;
+      });
+
+      function sync() {
+        const ticked = boxes.filter((b) => b.checked).length;
+        moduleBox.checked = boxes.length > 0 && ticked === boxes.length;
+        moduleBox.indeterminate = ticked > 0 && ticked < boxes.length;
+        count.textContent = ticked + " of " + boxes.length;
+      }
+      boxes.forEach((b) => b.addEventListener("change", sync));
+      moduleBox.addEventListener("change", () => {
+        boxes.forEach((b) => {
+          b.checked = moduleBox.checked;
+        });
+        sync();
+      });
+      sync();
+
+      group.append(head, grid);
+      rightsBody.appendChild(group);
+    });
+  }
+
+  async function openRights(u) {
+    try {
+      const result = await callApi("/api/users/" + u.user_id + "/rights", "GET");
+      if (!result.ok) {
+        showPageNote(result.error || "Could not load the rights.");
+        return;
+      }
+      rightsUserId = u.user_id;
+      document.getElementById("rightsTitle").textContent =
+        "Rights: " + result.user.first_name + " " + result.user.last_name;
+      document.getElementById("rightsSub").textContent =
+        "Tick what this " + (ROLE_NAMES[result.user.role_code] || "person").toLowerCase() + " may do. Nothing changes until you save.";
+      rightsForm.querySelector(".note").hidden = true;
+      renderRights(result.modules);
+      openModal(rightsModal);
+    } catch (err) {
+      showPageNote("Could not reach the server. Please try again.");
+    }
+  }
+
+  document.getElementById("rightsAll").addEventListener("click", () => setAllRights(true));
+  document.getElementById("rightsNone").addEventListener("click", () => setAllRights(false));
+
+  rightsForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitForm(
+      rightsForm,
+      () =>
+        callApi("/api/users/" + rightsUserId + "/rights", "PUT", {
+          rights: rightsBoxes()
+            .filter((box) => box.checked)
+            .map((box) => box.value),
+        }),
+      (result) => {
+        closeModal(rightsModal);
+        const parts = [];
+        if (result.granted) parts.push(result.granted + " added");
+        if (result.revoked) parts.push(result.revoked + " removed");
+        showPageNote(parts.length ? "Rights saved (" + parts.join(", ") + ")." : "No changes to save.");
       }
     );
   });
