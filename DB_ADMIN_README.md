@@ -177,6 +177,8 @@ Each addendum below belongs to **one task** and can be read on its own. New task
 | [0](#addendum-0-how-to-run-the-examples-all-tasks) | All tasks | n/a | How to run the sample SQL safely |
 | [S1-DBA-03](#addendum-s1-dba-03-login-and-rights-tables) | S1-DBA-03 | `20261101000100_auth_rights_tables.sql`, `20261101000200_auth_rights_soft_delete_and_lock_down.sql` | `app_user`, `role`, `module`, `permission`, `user_permission` |
 | [S1-DBA-04](#addendum-s1-dba-04-password-reset-token-table) | S1-DBA-04 | `20261102000100_password_reset_token.sql` | `password_reset_token` |
+| [S1-DBA-05](#addendum-s1-dba-05-seed-data) | S1-DBA-05 | `20261102000200_seed_roles_modules_rights.sql`, `20261102000300_seed_superadmin_accounts.sql`, `db/issue_set_password_links.py` | Roles, modules, the 36 rights, superadmin accounts, one-time set-password links |
+| [S1-DBA-06](#addendum-s1-dba-06-logged-in-user-in-the-audit-trail) | S1-DBA-06 | `20261103000100_audit_user_logged_in_name.sql`, `db/test_audit_user.py` | `audit_user()`, `audit_log.action_by`, stamps |
 
 ---
 
@@ -232,6 +234,8 @@ Then look at the result with Way 1 (`select * from app_user_active;`).
 > Rows can **never be hard-deleted** in this database (the database refuses `DELETE` and `TRUNCATE`). A test row you commit stays forever, and its email stays taken. If you ran something without `rollback` by mistake, soft-delete it: `update app_user set is_deleted = true where email = '...';`
 >
 > Changing the *structure* (tables, columns) is still only done through migration files, never in the SQL Editor.
+
+> **Seeing the result of a test.** The SQL Editor may show only the result of the *last* statement, and `rollback;` has no result, so a plain `begin ... rollback` can look empty. For a test that must show you something, use a `do` block that ends with `raise exception '...'`. The exception cancels the transaction by itself (nothing is saved) and the message is your result. The S1-DBA-04 and S1-DBA-06 addenda use this pattern. The Python test scripts in `db/` print their results directly.
 
 ## END OF ADDENDUM 0
 
@@ -378,7 +382,7 @@ order by last_name;
 ### Rules (S1-DBA-03)
 
 - Passwords are stored **only as hashes**. Audit logging for these tables is added later (S1-DBA-06), and it must keep hashes out of the log.
-- Never add real people's data to these tables in a migration file or in the repo.
+- Never add real people's data to these tables in a migration file or in the repo. The one exception is the team's own superadmin list in S1-DBA-05 (name and email only, never a password).
 - Permanent starting data (roles, modules, the 36 rights, the first superadmin accounts) belongs in the S1-DBA-05 migration, not typed by hand.
 - Rights are checked on the **server** for every request. Hiding a button is only a courtesy.
 
@@ -422,38 +426,42 @@ const hash  = crypto.createHash('sha256').update(token).digest('hex');   // goes
 
 ### 2. Store it and use it (test in the SQL Editor)
 
-This block uses a fake hash (`repeat('a', 64)`), the step 0 test setup from the S1-DBA-03 addendum, and a rollback:
+This test creates a user, creates a 30-minute link with a fake hash (`repeat('a', 64)`), uses it, then tries to use it again. It cancels itself at the end, so nothing is saved, and the message at the bottom is the result. Run it exactly as one block:
 
 ```sql
-begin;
--- Test setup (only until S1-DBA-05 is merged)
-insert into role (role_code, role_name) values ('user', 'User') on conflict (role_code) do nothing;
+do $$
+declare
+    v_uid    bigint;
+    v_first  int;
+    v_second int;
+begin
+    -- Test setup (only until S1-DBA-05 is merged)
+    insert into role (role_code, role_name) values ('user', 'User') on conflict (role_code) do nothing;
 
-insert into app_user (email, first_name, last_name)
-values ('tokentest@example.com', 'Tok', 'Test');
+    insert into app_user (email, first_name, last_name)
+    values ('tokentest@example.com', 'Tok', 'Test') returning user_id into v_uid;
 
--- Create a link that lasts 30 minutes
-insert into password_reset_token (user_id, token_hash, purpose, expires_at)
-select user_id, repeat('a', 64), 'reset', now() + interval '30 minutes'
-from app_user where lower(email) = 'tokentest@example.com';
+    insert into password_reset_token (user_id, token_hash, purpose, expires_at)
+    values (v_uid, repeat('a', 64), 'reset', now() + interval '30 minutes');
 
--- Use the link. In one statement, so a link can only work once.
-update password_reset_token
-set is_used = true, used_at = now()
-where token_hash = repeat('a', 64) and purpose = 'reset'
-  and not is_used and not is_deleted and expires_at > now()
-returning user_id;
+    -- Use the link. One statement, so a link can only work once.
+    update password_reset_token set is_used = true, used_at = now()
+    where token_hash = repeat('a', 64) and purpose = 'reset'
+      and not is_used and not is_deleted and expires_at > now();
+    get diagnostics v_first = row_count;
 
--- Use the same link again. This must return NO rows (it was already used).
-update password_reset_token
-set is_used = true, used_at = now()
-where token_hash = repeat('a', 64) and purpose = 'reset'
-  and not is_used and not is_deleted and expires_at > now()
-returning user_id;
-rollback;
+    -- Use the same link again. It must be refused.
+    update password_reset_token set is_used = true, used_at = now()
+    where token_hash = repeat('a', 64) and purpose = 'reset'
+      and not is_used and not is_deleted and expires_at > now();
+    get diagnostics v_second = row_count;
+
+    raise exception 'TEST RESULT (rolled back, nothing saved): first use changed % row(s), second use changed % row(s)', v_first, v_second;
+end;
+$$;
 ```
 
-The result panel shows only the last statement, so seeing **no rows** means the second use was refused, which is correct.
+The editor shows this as an error. That is intended. **Expected message:** `first use changed 1 row(s), second use changed 0 row(s)`. The second `0` is the proof that a link works only once.
 
 ### 3. In your app code
 
@@ -491,28 +499,230 @@ if (rows.length === 0) { /* invalid, expired or already used */ }
 
 ## END OF ADDENDUM S1-DBA-04
 
-## Self notes: 
-Find users who are pending
-```sql
-select user_id, email, first_name, last_name, role_code, account_status, is_blocked, stamp
-from app_user
-where account_status = 'pending' and not is_deleted
-order by user_id;
+
+---
+
+## ADDENDUM S1-DBA-05: Seed data
+
+**Task:** Seed data: one superadmin account per team member, modules (Customer, Product, Human Resources, Sales, Reports), the per-action rights catalogue (36 rights, guide 3.8), default roles. No passwords in the repo; the first password is set via a one-time set-password link.
+**For:** the DB Admin (steps 1 to 5), and Developers (what is seeded, and how to check it).
+
+### Before you start
+
+`python db/migrate.py status` must show S1-DBA-03 and S1-DBA-04 as `applied`. This task adds:
+- `20261102000200_seed_roles_modules_rights.sql`
+- `20261102000300_seed_superadmin_accounts.sql`
+- `db/issue_set_password_links.py` (a script, not a migration)
+
+### What gets seeded
+
+| Table | Rows | Details |
+|---|---|---|
+| `role` | 3 | `superadmin`, `admin`, `user` |
+| `module` | 5 | `customer`, `product`, `hr`, `sales`, `reports` |
+| `permission` | 36 | Customer 3, Product 6, Human Resources 13, Sales 7, Reports 7 |
+| `app_user` | one per team member | role `superadmin`, status `active`, **no password** |
+
+The rights use the same keys as the prototype's Rights dialog:
+
+| Module | Right codes |
+|---|---|
+| `customer` | `customers.add`, `customers.edit`, `customers.delete` |
+| `product` | `products.add`, `products.edit`, `products.delete`, `products.priceAdd`, `products.priceEdit`, `products.priceDelete` |
+| `hr` | `hr.jobAdd`, `hr.jobEdit`, `hr.jobDelete`, `hr.deptAdd`, `hr.deptEdit`, `hr.deptDelete`, `hr.empAdd`, `hr.empEdit`, `hr.empDelete`, `hr.jhView`, `hr.jhAdd`, `hr.jhEdit`, `hr.jhDelete` |
+| `sales` | `sales.add`, `sales.edit`, `sales.delete`, `sales.detailView`, `sales.detailAdd`, `sales.detailEdit`, `sales.detailDelete` |
+| `reports` | `reports.topCustomers`, `reports.productMaster`, `reports.topProducts`, `reports.activeEmployees`, `reports.allEmployees`, `reports.empJobHistory`, `reports.topSales` |
+
+### For the DB Admin
+
+**1. Check the team list.** Open `20261102000300_seed_superadmin_accounts.sql`. It holds the team's names and emails (currently a provisional list of five). Correct any name or email, and add or remove rows to match the team, **before you merge**: a merged migration cannot be edited. If a `REPLACE_...` placeholder is ever left in a row, the file stops with an error and nothing is applied. Do **not** add passwords.
+
+**2. Apply the migrations.**
+```bash
+python db/migrate.py
 ```
 
-Activate an account
+**3. Issue the one-time links.** Add these to your own `.env` (not the repo):
+```
+APP_BASE_URL=http://localhost:3000
+SET_PASSWORD_PATH=/set-password
+```
+`SET_PASSWORD_PATH` must match the set-password page the Developers build in S1-DEV-03. Then:
+```bash
+python db/issue_set_password_links.py
+```
+It prints one link per superadmin. Options: `--email someone@example.com` for one account, `--days 3` to change the lifetime (default 7), `--role all` to include other roles.
+
+**4. Send each link privately** to its owner (a private message, not the group chat, and never a file in the repo). The links are shown once and saved nowhere. Only the hashes are stored in the database.
+
+**5. Members set their password** by opening their link once. If a link expires, is lost, or leaks, run the script again for that email. It cancels the older unused links and prints a new one.
+
+### Check it worked (SQL Editor, read-only)
+
 ```sql
-update app_user
-set account_status = 'active'
-where lower(email) = lower('someone@example.com')
-  and account_status = 'pending'
-  and not is_deleted
-returning user_id, email, role_code, account_status;
+select count(*) from role;          -- 3
+select count(*) from module;        -- 5
+select count(*) from permission;    -- 36
+select module_code, count(*) from permission group by module_code;   -- 3, 6, 13, 7, 7
+
+select email, role_code, account_status, password_hash is null as no_password
+from app_user_active where role_code = 'superadmin';                 -- one row per member, no_password = true
+
+select u.email, t.purpose, t.expires_at, t.is_used
+from password_reset_token t join app_user u on u.user_id = t.user_id
+where t.purpose = 'set_password' order by t.token_id desc;           -- one unused row per member after step 3
 ```
 
-Check to confirm
+### For Developers
+
+- After this is merged, you no longer need the "test setup" block from the S1-DBA-03 addendum: roles, modules and rights exist.
+- Registration (S1-DEV-02) now works, because the `user` role exists.
+- Superadmin accounts exist but **cannot sign in until their owners use the one-time link**. S1-DEV-03 must provide the set-password page at the path set in `SET_PASSWORD_PATH`, and use the S1-DBA-04 token query to accept the link once.
+- Superadmin powers come from the **role**, so there are no `user_permission` rows for superadmins. Check the role in code.
+
+### Common errors (S1-DBA-05)
+
+| Error says | Cause |
+|---|---|
+| `Fill in the real team list in this file first` | A `REPLACE_...` row is still in the superadmin file. Replace it, or delete the row. |
+| violates foreign key ... `role` | The roles file did not run first, or S1-DBA-03 is not applied. Run `python db/migrate.py status`. |
+| `No matching accounts without a password. Nothing to do.` | Everyone already has a password, or the email or role filter matches nobody. |
+| The link opens a "not found" page | `SET_PASSWORD_PATH` in your `.env` does not match the Developers' page. |
+| The link says invalid or expired | It was used, expired, or replaced by a newer one. Issue a new link. |
+
+### Rules (S1-DBA-05)
+
+- **No passwords, and no links or tokens, in the repo.** The superadmin file holds names and emails only.
+- Because it holds the team's emails, keep the repository **private**.
+- If a link leaks, issue a new one at once. This cancels the old one.
+- Never change a seed file after it is merged. Fix a mistake with a new migration.
+
+## END OF ADDENDUM S1-DBA-05
+
+
+---
+
+## ADDENDUM S1-DBA-06: Logged-in user in the audit trail
+
+**Task:** Make `audit_user()` record the logged-in user in `audit_log`; test it.
+**For:** the DB Admin (apply and test), and Developers (what every data-changing request must do).
+
+### Before you start
+
+- S1-DBA-02 is applied (it created `audit_log`, `audit_user()` and the stamps).
+- `python db/migrate.py status` shows `20261103000100_audit_user_logged_in_name.sql` as `applied`.
+- The full end-to-end test needs S1-DEV-03 (login), because only a real login knows who the user is.
+
+### How it works
+
+Everyone shares one database login, so the database cannot tell users apart by itself. The app tells it, at the start of each data-changing transaction:
+
 ```sql
-select email, role_code, account_status, is_blocked, password_hash is null as no_password
-from app_user_active
-where lower(email) = lower('someone@example.com');
+select set_config('app.username', 'someone@example.com', true);
 ```
+
+`audit_user()` uses that name for the **stamp** (`EDIT someone@example.com 2026-11-03 10:15 AM`) and for `audit_log.action_by`. If no name is set (seeds, migrations, SQL Editor work), it uses the database login instead.
+
+### What the migration changes
+
+| Change | Why |
+|---|---|
+| `audit_user()` cuts the name to 80 characters | A long name can never make a write fail |
+| `audit_log.action_by`: 50 to 100 characters | An email no longer overflows the column |
+| `stamp` on the 10 HOPE tables: 60 to 120 characters | Same reason. The `*_active` views are dropped and recreated around this change, because PostgreSQL will not change a column that a view uses. |
+
+It does **not** attach audit logging to `app_user`, `user_permission` or `password_reset_token`. That is a separate task.
+
+### For Developers: the required pattern
+
+Every request that inserts, updates or soft-deletes must run in a transaction that sets the name first. Put it in one helper and use it everywhere:
+
+```js
+async function withUser(pool, username, work) {
+  const client = await pool.connect();
+  try {
+    await client.query('begin');
+    await client.query("select set_config('app.username', $1, true)", [username]);
+    const result = await work(client);
+    await client.query('commit');
+    return result;
+  } catch (e) {
+    await client.query('rollback');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// Example
+await withUser(pool, req.session.user.email, (db) =>
+  db.query('update customer set address = $1 where custno = $2', [address, custno])
+);
+```
+
+Rules:
+- **Use the signed-in user from the server session**, never a name sent by the browser.
+- **Keep the final `true`** in `set_config`. It makes the name last only for this transaction. Never use a plain `SET`: connections are shared between users, so a session-wide name would be recorded against the next person's changes.
+- Reads (`select`) do not need it.
+- If you forget, nothing breaks: the change is recorded under the database login (something like `postgres.xxxx`), so the audit trail names the wrong actor.
+
+### Test it (DB Admin)
+
+**1. Automatic test.** It changes one customer inside a transaction, checks the results, and rolls everything back:
+```bash
+python db/test_audit_user.py
+```
+Expected: six `PASS` lines and `All checks passed.`
+
+| Check | Proves |
+|---|---|
+| named user goes into `audit_log` / the stamp | The name is recorded |
+| no name set: database login is used | The fallback works |
+| 200-character name is cut to 80, write succeeds | Long names cannot break a write |
+| name does not leak into the next transaction | The setting is transaction-local |
+| test left no rows behind | Nothing was saved |
+
+**2. Manual test in the SQL Editor** (cancels itself, so nothing is saved):
+```sql
+do $$
+declare
+    v_action text;
+    v_by     text;
+    v_stamp  text;
+    v_cust   text;
+begin
+    perform set_config('app.username', 'jdoe@gmail.com', true);
+    select custno into v_cust from customer where not is_deleted order by custno limit 1;
+    update customer set payterm = case payterm when 'COD' then '30D' else 'COD' end where custno = v_cust;
+    select action, action_by into v_action, v_by from audit_log order by audit_id desc limit 1;
+    select stamp into v_stamp from customer where custno = v_cust;
+    raise exception 'TEST RESULT (rolled back, nothing saved): action=%, action_by=%, stamp=%', v_action, v_by, v_stamp;
+end;
+$$;
+```
+Expected message: `action=EDIT, action_by=jdoe@gmail.com, stamp=EDIT jdoe@gmail.com ...`. The editor shows it as an error. That is intended.
+
+**3. End-to-end test (after S1-DEV-03).** Sign in as a real user, change a customer on the screen, then run:
+```sql
+select audit_id, table_name, action, record_key, action_by, action_at
+from audit_log order by audit_id desc limit 5;
+```
+`action_by` should be the signed-in user's email, not the database login.
+
+### Common errors (S1-DBA-06)
+
+| Error says | Cause |
+|---|---|
+| `cannot alter type of a column used by a view or rule` | Someone made another view that uses a `stamp` column. Drop that view, apply the migration, then recreate the view. |
+| `value too long for type character varying(50)` or `(60)` | The migration is not applied yet |
+| `action_by` shows `postgres.xxxx` instead of a user | The app did not run `set_config` in that transaction |
+| `action_by` shows the wrong person | The name was set for the whole session (`SET`) instead of the transaction, or comes from the browser |
+| test script: `No customer rows to test with` | The S1-DBA-02 sample data is not applied |
+
+### Rules (S1-DBA-06)
+
+- The name comes from the server's session, never from the browser.
+- Anyone who can connect to the database can set any name, so `DATABASE_URL` stays secret and the tables stay closed to Supabase's public API.
+- The audit trail is append-only. A wrong `action_by` cannot be corrected afterward, so get the helper right from the start.
+
+## END OF ADDENDUM S1-DBA-06
