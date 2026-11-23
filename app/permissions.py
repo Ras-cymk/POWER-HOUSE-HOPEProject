@@ -2,6 +2,7 @@ from functools import wraps
 
 from flask import abort, jsonify, request
 
+from app.navigation import module_access
 from app.rights import granted_codes
 from app.security import current_user, login_required
 
@@ -76,6 +77,36 @@ def right_required(perm_code):
             if not has_right(perm_code):
                 if request.path.startswith("/api/"):
                     return jsonify(ok=False, error="You do not have this right."), 403
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def has_module_access(module_code):
+    """True if the signed-in person holds at least one right in this module.
+
+    Superadmins hold every right. A module that does not exist is never accessible.
+    """
+    user = current_user()
+    if user is None:
+        return False
+    return any(m["accessible"] for m in module_access(user) if m["module_code"] == module_code)
+
+
+def module_required(module_code):
+    """Allow only people who hold at least one right in this module. Use it on a
+    module's screens, and add @right_required on the actions inside them."""
+
+    def decorator(view):
+        @login_required
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            if not has_module_access(module_code):
+                if request.path.startswith("/api/"):
+                    return jsonify(ok=False, error="You do not have access to this module."), 403
                 abort(403)
             return view(*args, **kwargs)
 

@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}No access | Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.landing') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+  </header>
+
+  <main class="hero">
+    <h1>You do not have access to this page</h1>
+    <p class="lead">Your account does not have the right for it. Ask an administrator if you think you should.</p>
+    <div class="cta">
+      <a class="btn btn-solid" href="{{ url_for('main.home') }}">Back to home</a>
+    </div>
+  </main>
+</div>
+{% endblock %}
