@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Customers | Hope, Inc. ERP{% endblock %}
+
+{% block content %}
+{% include "partials/_app_shell_style.html" %}
+<div class="wrap">
+  <header class="nav">
+    <a href="{{ url_for('main.home') }}" class="brand"><span class="mark">H</span>Hope, Inc. ERP</a>
+    <div class="nav-actions">
+      <button class="btn btn-outline" data-logout>Log out</button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    {% set active = 'customer' %}
+    {% include "partials/_sidebar.html" %}
+
+    <main class="app-main">
+      <h1>Customers</h1>
+      <p class="lead">Search the customers and filter them by pay terms.</p>
+
+      <form class="list-toolbar" method="get" action="{{ url_for('customers.customer_list') }}" role="search">
+        <input type="search" name="q" value="{{ q }}" placeholder="Search by number, name or address" aria-label="Search customers" maxlength="100">
+        <select name="terms" aria-label="Pay terms">
+          <option value="">All pay terms</option>
+          {% for term in data.pay_terms %}
+          <option value="{{ term }}"{% if term == data.payterm %} selected{% endif %}>{{ term }}</option>
+          {% endfor %}
+        </select>
+        {% if sort != 'custno' %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
+        {% if descending %}<input type="hidden" name="dir" value="desc">{% endif %}
+        <button type="submit" class="btn btn-solid">Search</button>
+        {% if q or data.payterm %}<a class="btn btn-ghost" href="{{ clear_link }}">Clear</a>{% endif %}
+      </form>
+
+      <p class="list-summary" role="status">
+        {% if data.total == 0 %}
+          {% if q or data.payterm %}No customers match your search.{% else %}There are no customers yet.{% endif %}
+        {% else %}
+          Showing {{ data.first }}–{{ data.last }} of {{ data.total }} customers
+        {% endif %}
+      </p>
+
+      {% if data.rows %}
+      <div class="data-table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              {% for key, label in [('custno', 'Customer No'), ('custname', 'Name'), ('address', 'Address'), ('payterm', 'Pay terms')] %}
+              {% if key == 'address' %}
+              <th scope="col">{{ label }}</th>
+              {% else %}
+              <th scope="col"{% if sort == key %} aria-sort="{{ 'descending' if descending else 'ascending' }}"{% endif %}>
+                <a href="{{ sort_link(key) }}">{{ label }}{% if sort == key %} {{ '▼' if descending else '▲' }}{% endif %}</a>
+              </th>
+              {% endif %}
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in data.rows %}
+            <tr data-custno="{{ c.custno }}">
+              <td>{{ c.custno }}</td>
+              <td>{{ c.custname or '—' }}</td>
+              <td>{{ c.address or '—' }}</td>
+              <td>{{ c.payterm or '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+
+      {% if data.pages > 1 %}
+      <nav class="pager" aria-label="Pages">
+        {% if data.page > 1 %}<a class="btn btn-outline" rel="prev" href="{{ page_link(data.page - 1) }}">Previous</a>{% else %}<span class="pager-off">Previous</span>{% endif %}
+        <span>Page {{ data.page }} of {{ data.pages }}</span>
+        {% if data.page < data.pages %}<a class="btn btn-outline" rel="next" href="{{ page_link(data.page + 1) }}">Next</a>{% else %}<span class="pager-off">Next</span>{% endif %}
+      </nav>
+      {% endif %}
+    </main>
+  </div>
+</div>
+{% endblock %}

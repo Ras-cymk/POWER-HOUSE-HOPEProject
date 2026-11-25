@@ -1,6 +1,20 @@
+from flask import url_for
+
 from app.rights import granted_codes, load_catalogue
 
 ROLE_NAMES = {"superadmin": "Superadmin", "admin": "Admin", "user": "User"}
+
+# Modules that already have a real screen. The others use the placeholder page
+# until their screens are built. Add a module here when its screen is ready.
+MODULE_SCREENS = {"customer": "customers.customer_list"}
+
+
+def module_url(module_code):
+    """Where the menu and the tiles send a person for this module."""
+    endpoint = MODULE_SCREENS.get(module_code)
+    if endpoint:
+        return url_for(endpoint)
+    return url_for("modules.module_page", module_code=module_code)
 
 
 def module_access(user):

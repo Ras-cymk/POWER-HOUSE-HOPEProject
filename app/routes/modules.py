@@ -1,6 +1,6 @@
-from flask import Blueprint, abort, jsonify, render_template
+from flask import Blueprint, abort, jsonify, redirect, render_template
 
-from app.navigation import ROLE_NAMES, build_nav, module_access
+from app.navigation import MODULE_SCREENS, ROLE_NAMES, build_nav, module_access, module_url
 from app.security import current_user, login_required
 
 
@@ -22,6 +22,8 @@ def module_page(module_code):
         abort(404)
     if not module["accessible"]:
         abort(403)
+    if module_code in MODULE_SCREENS:
+        return redirect(module_url(module_code))
     return render_template(
         "module.html",
         user=user,

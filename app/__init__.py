@@ -41,6 +41,17 @@ def create_app():
     from app.routes.modules import modules_bp
     app.register_blueprint(modules_bp)
 
+    from app.routes.customers import customers_bp
+    app.register_blueprint(customers_bp)
+
+    # One database connection per request, closed when the request ends (see app/db.py)
+    from app.db import close_request_connection
+    app.teardown_appcontext(close_request_connection)
+
+    # The menu and the tiles ask this where each module's page is
+    from app.navigation import module_url
+    app.jinja_env.globals["module_url"] = module_url
+
     @app.errorhandler(403)
     def forbidden(error):
         # Pages get a friendly screen. API calls get JSON, like every other API answer.

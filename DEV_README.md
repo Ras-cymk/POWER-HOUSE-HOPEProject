@@ -115,10 +115,21 @@ The "User Management" link on `/home`, which opens `/users`, is for admins and s
 
 - **Who sees which module.** A module appears when the person holds at least one right in it, so it follows the rights set in the Rights dialog. Each tile says how much they hold, for example "2 of 3 actions". Superadmins hold every right, so they see all five modules with every action.
 - **User Management** is in the sidebar and as a tile for admins and superadmins only. That depends on the role, not on rights.
-- **Module pages.** `/modules/customer`, `/modules/product`, `/modules/hr`, `/modules/sales` and `/modules/reports` are placeholders until the real screens are built. Each lists every action of the module as "Allowed" or "Not allowed", so a person's rights can be checked at a glance.
+- **Module pages.** `/modules/product`, `/modules/hr`, `/modules/sales` and `/modules/reports` are placeholders until the real screens are built. Each lists every action of the module as "Allowed" or "Not allowed", so a person's rights can be checked at a glance. Customer already has its real screen at `/customers`, and `/modules/customer` sends people there. `MODULE_SCREENS` in `app/navigation.py` says which modules have one.
 - **The server checks it.** Without a right in a module, `/modules/<module>` answers 403 even if the address is typed by hand, and an unknown module answers 404. A 403 on a page shows a friendly "no access" screen, and a 403 on an `/api/` address returns JSON.
 - **One rule, three places.** `app/navigation.py` decides which modules a person may open. The sidebar, the tiles and the server check all use it, so they cannot disagree. A change in rights shows on the next page load.
 - `GET /api/me/rights` lists what the signed-in person may do, for screens and tests that need it.
+
+## Customers
+
+`/customers` lists the active customers (deleted ones never show) with their number, name, address and pay terms. The Customer tile and sidebar entry lead there.
+
+- **Who can open it.** Anyone holding at least one Customer right (Add, Edit or Delete). The rights catalogue has no separate "view customer" right. Everyone else gets the "no access" screen, and superadmins always get in.
+- **Search.** The box matches the customer number, name or address anywhere in the text, ignoring upper and lower case. The characters `%`, `_` and `!` are searched as plain text, not as wildcards.
+- **Filter.** The pay-terms drop-down lists the terms that are in use (COD, 30D and 45D) and works together with the search. An unknown value in the address is ignored.
+- **Sort and paging.** Click the Number, Name or Pay terms header to sort, and click again to reverse it. Customers with the same value stay in number order. The list shows 25 customers per page, and the sort, search and filter are kept when you move between pages. A page number that does not exist is corrected to the nearest real page.
+- Empty names, addresses and pay terms show a dash.
+- Add, Edit, Delete and Restore for customers come with S2-DEV-02 and S2-DEV-03.
 
 ## Email
 
@@ -185,6 +196,16 @@ The app sends email for password resets, for new users added in User Management,
 5. Open `/modules/sales`. Add Sale is "Allowed" and the other six actions are "Not allowed".
 6. As the superadmin, take Add Sale away. Reload the test user's `/home`: the Sales tile is gone, and `/modules/sales` gives the "no access" screen.
 7. As the test user, open `/users`. It gives the "no access" screen. Open `/api/me/rights`: it shows their rights as JSON.
+
+**Customers**
+
+1. Sign in as a superadmin and click Customer Management. You land on `/customers`. It shows "Showing 1–25 of 82 customers" and a Next link.
+2. Type part of a customer name in the search box and press Search. Only matching customers show, and the count changes. Click Clear.
+3. Search for `%`. It finds only customers that contain a percent sign (probably none, so you see "No customers match your search."), not everyone.
+4. Pick a pay term in the drop-down and search again. Only that pay term shows, and the drop-down keeps your choice.
+5. Click the Name header: the list sorts by name and the header shows an arrow. Click again to reverse it. Go to page 2: the sort and the search are kept.
+6. Put `?page=999` at the end of the address. The last page shows, with no error.
+7. In a private window, sign in as a `test_` user with no Customer right and open `/customers`. You get the "no access" screen. Give that user Add Customer in the Rights dialog and reload. The list opens.
 
 ### Test helpers (until the admin screens exist)
 
@@ -261,6 +282,9 @@ Passwords must be at least 8 characters and at most 72 bytes (bcrypt ignores any
 | `app/audit.py` | the name sent to the database's audit trail |
 | `app/navigation.py` | which modules a person may open, with their rights in each. The sidebar, the tiles and the server check all use it |
 | `app/routes/modules.py` | the module placeholder pages and `GET /api/me/rights` |
+| `app/db.py` | the database connection. During a web request every caller shares one connection, so a page with several queries connects once |
+| `app/customers.py` | the customer list query: search, filter, sort and paging |
+| `app/routes/customers.py`, `app/templates/customers.html` | the Customers screen |
 | `app/security.py` | bcrypt hashing, token hashing, the session, `current_user()` and `@login_required` |
 | `app/permissions.py` | `@roles_required(...)`, `@right_required(...)`, `@module_required(...)`, `has_right()`, `has_module_access()`, and which roles may manage which |
 | `app/mailer.py` | sends plain-text email through SMTP, or prints it when SMTP is not set up |
@@ -299,7 +323,9 @@ def new_customer():
     ...
 ```
 
-Not built yet: the real module screens (the pages under `/modules/...` are placeholders, and later sprints build the screens and guard each action with `@right_required`), a screen to read the audit log, a separate "verify your email" step before approval (the link emailed on approval already proves ownership of the address), and lockout after repeated failed sign-ins.
+**Database connections.** Call `get_connection()` and keep the usual pattern: `conn = get_connection()`, then `with conn, conn.cursor() as cur:`, then `conn.close()` in a `finally`. During a web request every caller shares one connection. `close()` does nothing then, and the app closes it when the request ends, which keeps pages with several queries fast. In scripts and the shell each call opens its own.
+
+Not built yet: the other module screens (Product, Human Resources, Sales and Reports are placeholders under `/modules/...`, and later sprints build them and guard each action with `@right_required`), Add, Edit, Delete and Restore for customers (S2-DEV-02 and S2-DEV-03), a screen to read the audit log, a separate "verify your email" step before approval (the link emailed on approval already proves ownership of the address), and lockout after repeated failed sign-ins.
 
 Known limits: resetting a password does not sign out sessions that are already open elsewhere. They end after 8 hours, or as soon as the account is blocked. The User Management list has no paging, and Edit User cannot change an email. Superadmin accounts come from the database seed and cannot be created or demoted on the screen. Only rights changes tell the database who is acting. The stamp of other writes (add, edit, block, approve, roles) still records the database login. An Admin can grant any right, including ones they do not hold themselves. The sidebar is on the main page and the module pages only, not yet on the User Management page.
 
@@ -328,3 +354,6 @@ Known limits: resetting a password does not sign out sessions that are already o
 | Saving rights says "Server error" | Check the Flask terminal for the reason. Nothing is saved when the audit entry cannot be written. |
 | A module is missing from the main page, or its page says "You do not have access" | The person holds no right in that module. Set one in the Rights dialog. Superadmins always see every module. |
 | The main page says "You do not have access to any modules yet" | The person has no rights yet. An admin or superadmin sets them in the Rights dialog. |
+| Pages are slow | Each web request opens one database connection, and a distant database makes that slow. Check the region in `DATABASE_URL`: a project in Singapore (`ap-southeast-1`) is the nearest to the Philippines. |
+| The customer list is empty, but customers exist | Only active (not deleted) customers show. Check the search box and the pay-terms filter, and click Clear. |
+| Searching for `%` or `_` finds almost nothing | That is on purpose: those characters are searched as plain text, not as wildcards. |

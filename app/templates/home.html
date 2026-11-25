@@ -22,7 +22,7 @@
       {% if nav.modules or nav.can_manage_users %}
       <div class="tile-grid">
         {% for m in nav.modules %}
-        <a class="tile" data-module="{{ m.module_code }}" href="{{ url_for('modules.module_page', module_code=m.module_code) }}">
+        <a class="tile" data-module="{{ m.module_code }}" href="{{ module_url(m.module_code) }}">
           <h2>{{ m.module_name }}</h2>
           <p>{% if user.role_code == 'superadmin' %}All {{ m.total }} actions{% else %}{{ m.held }} of {{ m.total }} actions{% endif %}</p>
         </a>
