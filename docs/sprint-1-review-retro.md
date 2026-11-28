@@ -51,10 +51,10 @@
 
 | # | Action | Owner | Due | Status |
 |---|---|---|---|---|
-| 1 | Assign owners to TST-02 to TST-06 | Scrum Master, Tester | November 28, 2026 | Open |
-| 2 | Submit the first Tester PR (TST-01) | Michael Angelo Sibulo | November 28, 2026 | Open |
-| 3 | Split UI/UX work into one PR per task from Sprint 2 | Mark Akira Despi | November 28, 2026 | Open |
-| 4 | Create issues for all Sprint 2 tasks before the sprint starts | Scrum Master | November 28, 2026 | Open |
+| 1 | Assign owners to TST-02 to TST-06 | Scrum Master, Tester | November 25, 2026 | Open |
+| 2 | Submit the first Tester PR (TST-01) | Michael Angelo Sibulo | November 25, 2026 | Open |
+| 3 | Split UI/UX work into one PR per task from Sprint 2 | Mark Akira Despi | November 25, 2026 | Open |
+| 4 | Create issues for all Sprint 2 tasks before the sprint starts | Scrum Master | November 25, 2026 | Open |
 | 5 | [action] | [owner] | [date] | Open |
 
 Action items are tracked at the start of Sprint 2.
